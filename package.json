@@ -5,9 +5,9 @@
   "main": "index.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-  "build": "tsc && cp -r src/db/migrations dist/db/migrations",
+    "build": "tsc && cp -r src/db/migrations dist/db/migrations",
     "start": "node dist/server.js",
-    "test": "vitest",
+      "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts"
   },
@@ -18,7 +18,7 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
- "type": "module",
+  "type": "module",
   "bugs": {
     "url": "https://github.com/Nour-Anwar/log-ingestion-service/issues"
   },
