@@ -1,3 +1,6 @@
+// TODO: 0000_init.sql needs to be copied into dist/ during build,
+// otherwise this path resolution breaks under `npm start` / Docker.
+
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
