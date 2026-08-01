@@ -3,11 +3,13 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
-   "scripts": {
+  "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "test": "vitest"
+    "test": "vitest",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/db/migrate.ts"
   },
   "repository": {
     "type": "git",
@@ -16,7 +18,7 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
+ "type": "module",
   "bugs": {
     "url": "https://github.com/Nour-Anwar/log-ingestion-service/issues"
   },
