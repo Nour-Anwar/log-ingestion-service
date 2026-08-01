@@ -1,3 +1,17 @@
 node_modules/
 dist/
 .env
+.env.*
+!.env.example
+
+npm-debug.log*
+
+src/db/drizzle-generated/
+
+.DS_Store
+Thumbs.db
+
+.vscode/
+.idea/
+
+coverage/
