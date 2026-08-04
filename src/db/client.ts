@@ -8,5 +8,5 @@ if (!connectionString) {
 }
 
 export const sql = postgres(connectionString, {
-  max: 10, // عدد الاتصالات بالـ pool — رح نراجعه لاحقاً وقت اختبار الأداء تحت حدود الذاكرة
+  max: 50,
 });
