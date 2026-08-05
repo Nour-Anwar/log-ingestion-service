@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: log_service
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5433/log_service
+      PORT: 8080
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check + build
+        run: npm run build
+
+      - name: Verify migration file copied to dist
+        run: test -f dist/db/migrations/0000_init.sql
+
+      - name: Run tests
+        run: npm test
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t log-ingestion-service .
+
+      - name: Validate docker-compose config
+        run: docker compose config
+
+      - name: Start full stack and check health
+        run: |
+          docker compose up -d --build
+          echo "Waiting for service to become healthy..."
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/health; then
+              echo "Service is healthy"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Service failed to become healthy in time"
+          docker compose logs
+          exit 1
+
+      - name: Smoke test POST /logs
+        run: |
+          response=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:8080/logs \
+            -H "Content-Type: application/json" \
+            -d '{"logs":[{"timestamp":"2026-08-01T12:00:00Z","level":"info","service":"ci-test","message":"ci smoke test"}]}')
+          if [ "$response" != "200" ]; then
+            echo "Expected 200, got $response"
+            docker compose logs app
+            exit 1
+          fi
+
+      - name: Smoke test GET /logs
+        run: |
+          response=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:8080/logs?service=ci-test")
+          if [ "$response" != "200" ]; then
+            echo "Expected 200, got $response"
+            exit 1
+          fi
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
