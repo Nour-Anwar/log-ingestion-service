@@ -14,7 +14,7 @@ CREATE TABLE logs (
 
 CREATE INDEX idx_logs_service_ts ON logs (service, ts DESC);
 CREATE INDEX idx_logs_level_ts   ON logs (level, ts DESC);
-CREATE INDEX idx_logs_attrs      ON logs USING GIN (attributes);
+CREATE INDEX idx_logs_attrs ON logs USING GIN (attributes jsonb_path_ops);
 CREATE INDEX idx_logs_message    ON logs USING GIN (message gin_trgm_ops);
 
 CREATE TABLE logs_default PARTITION OF logs DEFAULT;

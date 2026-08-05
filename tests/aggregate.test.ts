@@ -18,24 +18,27 @@ describe("GET /logs/aggregate", () => {
     expect(res.status).toBe(400);
   });
 
-  it("returns group: null when group_by is absent", async () => {
-    await request(app)
-      .post("/logs")
-      .send({
-        logs: [
-          {
-            timestamp: new Date().toISOString(),
-            level: "error",
-            service: "checkout",
-            message: "x",
-          },
-        ],
-      });
+ it("returns group: null when group_by is absent", async () => {
+  await request(app)
+    .post("/logs")
+    .send({
+      logs: [
+        {
+          timestamp: new Date().toISOString(),
+          level: "error",
+          service: "checkout",
+          message: "x",
+        },
+      ],
+    });
 
-    const res = await request(app).get(
-      "/logs/aggregate?since=2026-08-01T00:00:00Z&until=2026-08-03T00:00:00Z&bucket=1d"
-    );
-    expect(res.status).toBe(200);
-    expect(res.body.buckets[0].group).toBeNull();
-  });
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const until = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+  const res = await request(app).get(
+    `/logs/aggregate?since=${since}&until=${until}&bucket=1d`
+  );
+  expect(res.status).toBe(200);
+  expect(res.body.buckets[0].group).toBeNull();
+});
 });

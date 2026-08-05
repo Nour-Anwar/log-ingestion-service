@@ -59,7 +59,7 @@ export async function ingestLogs(req: Request, res: Response) {
   await new Promise<void>((resolve, reject) => {
     writable.on("error", reject);
     writable.on("finish", resolve);
-    for (const row of acceptedRows) writable.write(row);
+    writable.write(acceptedRows.join(""));
     writable.end();
   });
 
