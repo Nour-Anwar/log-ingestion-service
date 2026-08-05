@@ -148,6 +148,11 @@ Benchmarks were measured under the assignment's required Docker resource limits 
  
 - At very high concurrency (1,000 simultaneous connections), the single-core Postgres limit saturates — throughput degrades and requests may time out. The required throughput is met at realistic concurrency (50 connections).
 - Local measurements vary ±30% run-to-run (shared CPU between containers and host under WSL2); reported numbers reflect multiple runs, not a single best case.
+
+## Optional Features
+
+No optional features (authentication, API keys, multi-tenancy, or rate limiting) are implemented. `docker compose up` with no environment configuration serves all four endpoints (`GET /health`, `POST /logs`, `GET /logs`, `GET /logs/aggregate`) unauthenticated, with no rate limits or quotas.
+
 ## License
  
 MIT
