@@ -13,7 +13,8 @@
     "seed": "tsx scripts/seed.ts",
   "load:ingest": "tsx scripts/load-test-ingest.ts",
   "load:query": "tsx scripts/load-test-query.ts",
-  "load:stress": "tsx scripts/load-test-stress.ts"
+  "load:stress": "tsx scripts/load-test-stress.ts",
+  "load:combined": "tsx scripts/load-test-combined.ts"
   },
   "repository": {
     "type": "git",
