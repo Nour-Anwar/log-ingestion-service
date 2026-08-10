@@ -1,7 +1,6 @@
 import type { Request, Response } from "express";
-import { sql } from "../db/client.js";
 import { logEntrySchema } from "./validate.js";
-import { upsertHourlyCounts } from "../db/rollup.js";
+import { enqueueLogs } from "../db/writeBuffer.js";
 
 function csvField(value: string): string {
   return `"${value.replaceAll('"', '""')}"`;
@@ -63,19 +62,9 @@ export async function ingestLogs(req: Request, res: Response) {
   }
 
   try {
-    const writable = await sql`
-    COPY logs (ts, level, service, message, attributes)
-    FROM STDIN WITH (FORMAT csv)
-  `.writable();
-
-    await new Promise<void>((resolve, reject) => {
-      writable.on("error", reject);
-      writable.on("finish", resolve);
-      writable.write(acceptedRows.join(""));
-      writable.end();
-    });
+    await enqueueLogs(acceptedRows, acceptedEntries);
   } catch (err) {
-    console.error("[ingest] COPY failed:", err);
+    console.error("[ingest] flush failed:", err);
     return res
       .status(500)
       .json({ error: "failed to write logs, please retry" });
@@ -84,9 +73,5 @@ export async function ingestLogs(req: Request, res: Response) {
   res.status(200).json({
     accepted: acceptedRows.length,
     rejected,
-  });
-
-  upsertHourlyCounts(acceptedEntries).catch((err) => {
-    console.error("[ingest] rollup upsert failed:", err);
   });
 }

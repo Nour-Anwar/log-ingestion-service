@@ -2,7 +2,7 @@ import autocannon from "autocannon";
 
 const BATCH_SIZE = 500;
 const DURATION_SECONDS = 30;
-const CONNECTIONS = 50;
+const CONNECTIONS = 20;
 
 function buildBatch() {
   const logs = Array.from({ length: BATCH_SIZE }, (_, i) => ({

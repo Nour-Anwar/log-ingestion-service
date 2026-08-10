@@ -55,4 +55,5 @@ export async function runMigrations() {
   );
 
   await applyAlways("0002_ts_index.sql");
+  await applyAlways("0003_aggregate_indexes.sql"); 
 }

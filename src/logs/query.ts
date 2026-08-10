@@ -23,6 +23,12 @@ interface LogRowDb {
   attributes: Record<string, unknown>;
 }
 
+function escapeLike(value: string): string {
+  return value
+    .replaceAll("\\", "\\\\")
+    .replaceAll("%", "\\%")
+    .replaceAll("_", "\\_");
+}
 
 export async function queryLogs(params: LogQueryParams) {
   const conditions = [];
@@ -44,8 +50,10 @@ export async function queryLogs(params: LogQueryParams) {
   }
 
   if (params.q) {
+    const q = escapeLike(params.q);
+
     conditions.push(
-      sql`message ILIKE ${"%" + params.q + "%"}`
+      sql`message ILIKE ${"%" + q + "%"} ESCAPE '\\'`
     );
   }
 
@@ -55,27 +63,21 @@ export async function queryLogs(params: LogQueryParams) {
     );
   }
 
-
   if (params.cursor) {
     conditions.push(
-      sql`
-      (ts, id) < (${params.cursor.ts}, ${params.cursor.id})
-      `
+      sql`(ts, id) < (${params.cursor.ts}, ${params.cursor.id})`
     );
   }
-
 
   const whereClause =
     conditions.length > 0
       ? sql`WHERE ${conditions.reduce(
-          (acc, condition) =>
-            sql`${acc} AND ${condition}`
+          (acc, condition) => sql`${acc} AND ${condition}`
         )}`
       : sql``;
 
-
   const rows = await sql<LogRowDb[]>`
-    SELECT 
+    SELECT
       id,
       ts,
       level,
@@ -88,13 +90,11 @@ export async function queryLogs(params: LogQueryParams) {
     LIMIT ${params.limit + 1}
   `;
 
-
   const hasMore = rows.length > params.limit;
 
   const logs = hasMore
     ? rows.slice(0, params.limit)
     : rows;
-
 
   const nextCursor = hasMore
     ? encodeCursor(
@@ -103,21 +103,18 @@ export async function queryLogs(params: LogQueryParams) {
       )
     : null;
 
-
- return {
-  logs: logs.map((log) => ({
-    id: log.id,
-    timestamp: log.ts,
-    level: log.level,
-    service: log.service,
-    message: log.message,
-    attributes: log.attributes,
-  })),
-  nextCursor,
-};
+  return {
+    logs: logs.map((log) => ({
+      id: log.id,
+      timestamp: log.ts,
+      level: log.level,
+      service: log.service,
+      message: log.message,
+      attributes: log.attributes,
+    })),
+    nextCursor,
+  };
 }
-
-
 
 export function encodeCursor(
   ts: string,
@@ -133,23 +130,18 @@ export function encodeCursor(
     .toString("base64url");
 }
 
-
-
 export function decodeCursor(cursor: string) {
-
   const data = JSON.parse(
-    Buffer.from(cursor, "base64url")
-      .toString()
+    Buffer.from(cursor, "base64url").toString()
   );
-
 
   if (
     typeof data.ts !== "string" ||
-    typeof data.id !== "number"
+    typeof data.id !== "number" ||
+    !Number.isSafeInteger(data.id)
   ) {
     throw new Error("invalid cursor");
   }
-
 
   return data;
 }

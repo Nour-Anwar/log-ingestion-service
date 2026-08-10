@@ -1,0 +1,108 @@
+import { sql } from "./client.js";
+import { upsertHourlyCounts } from "./rollup.js";
+
+const FLUSH_INTERVAL_MS = 25;
+const MAX_BATCH_SIZE = 20000; // safety valve: flush early if a batch gets huge
+
+interface AcceptedEntry {
+  timestamp: string;
+  level: string;
+  service: string;
+}
+
+interface Batch {
+  csvRows: string[];
+  entries: AcceptedEntry[];
+  resolve: () => void;
+  reject: (err: unknown) => void;
+  promise: Promise<void>;
+}
+
+function newBatch(): Batch {
+  let resolve!: () => void;
+  let reject!: (err: unknown) => void;
+  const promise = new Promise<void>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { csvRows: [], entries: [], resolve, reject, promise };
+}
+
+let current = newBatch();
+let timer: ReturnType<typeof setTimeout> | null = null;
+const queue: Batch[] = [];
+let draining = false;
+
+function scheduleFlush() {
+  if (timer) return;
+  timer = setTimeout(() => {
+    timer = null;
+    rotate();
+  }, FLUSH_INTERVAL_MS);
+}
+
+function rotate() {
+  if (current.csvRows.length === 0) return;
+  queue.push(current);
+  current = newBatch();
+  drain();
+}
+
+async function drain() {
+  if (draining) return;
+  draining = true;
+  while (queue.length > 0) {
+    const batch = queue.shift()!;
+    try {
+      await flushBatch(batch);
+      batch.resolve();
+    } catch (err) {
+      batch.reject(err);
+    }
+  }
+  draining = false;
+}
+
+async function flushBatch(batch: Batch) {
+  const writable = await sql`
+    COPY logs (ts, level, service, message, attributes)
+    FROM STDIN WITH (FORMAT csv)
+  `.writable();
+
+  await new Promise<void>((resolve, reject) => {
+    writable.on("error", reject);
+    writable.on("finish", resolve);
+    writable.write(batch.csvRows.join(""));
+    writable.end();
+  });
+
+  // rollup فشله ما لازم يفشّل الـ ingest نفسه — هو تحسين للـ query مش مصدر الحقيقة
+  await upsertHourlyCounts(batch.entries).catch((err) => {
+    console.error("[writeBuffer] rollup upsert failed:", err);
+  });
+}
+
+/**
+ * يضيف rows لل-batch الحالي ويرجع promise بتتحل لما الـ batch
+ * (يلي هاد الـ row انضم إلها) ينكتب فعلياً بقاعدة البيانات.
+ */
+export function enqueueLogs(
+  csvRows: string[],
+  entries: AcceptedEntry[]
+): Promise<void> {
+  const batch = current;
+  batch.csvRows.push(...csvRows);
+  batch.entries.push(...entries);
+
+  if (batch.csvRows.length >= MAX_BATCH_SIZE) {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    rotate();
+  } else {
+    scheduleFlush();
+  }
+
+  return batch.promise;
+}
