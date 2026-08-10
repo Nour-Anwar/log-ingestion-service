@@ -34,7 +34,11 @@ export async function ingestLogs(req: Request, res: Response) {
   }
 
   const acceptedRows: string[] = [];
-  const acceptedEntries: { timestamp: string; level: string; service: string }[] = [];
+  const acceptedEntries: {
+    timestamp: string;
+    level: string;
+    service: string;
+  }[] = [];
   const rejected: { index: number; reason: string }[] = [];
 
   body.logs.forEach((raw: unknown, index: number) => {
@@ -60,9 +64,9 @@ export async function ingestLogs(req: Request, res: Response) {
 
   try {
     const writable = await sql`
-      COPY logs (ts, level, service, message, attributes)
-      FROM STDIN WITH (FORMAT csv)
-    `.writable();
+    COPY logs (ts, level, service, message, attributes)
+    FROM STDIN WITH (FORMAT csv)
+  `.writable();
 
     await new Promise<void>((resolve, reject) => {
       writable.on("error", reject);
@@ -70,12 +74,19 @@ export async function ingestLogs(req: Request, res: Response) {
       writable.write(acceptedRows.join(""));
       writable.end();
     });
-
-    await upsertHourlyCounts(acceptedEntries);
   } catch (err) {
-    console.error("[ingest] write failed:", err);
-    return res.status(500).json({ error: "failed to write logs, please retry" });
+    console.error("[ingest] COPY failed:", err);
+    return res
+      .status(500)
+      .json({ error: "failed to write logs, please retry" });
   }
 
-  res.status(200).json({ accepted: acceptedRows.length, rejected });
+  res.status(200).json({
+    accepted: acceptedRows.length,
+    rejected,
+  });
+
+  upsertHourlyCounts(acceptedEntries).catch((err) => {
+    console.error("[ingest] rollup upsert failed:", err);
+  });
 }

@@ -8,9 +8,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 async function tableExists(name: string): Promise<boolean> {
   const result = await sql<{ exists: boolean }[]>`
     SELECT EXISTS (
-      SELECT 1 FROM information_schema.tables WHERE table_name = ${name}
+      SELECT 1
+      FROM information_schema.tables
+      WHERE table_name = ${name}
     ) AS exists
   `;
+
   return result[0]?.exists ?? false;
 }
 
@@ -19,13 +22,37 @@ async function applyIfMissing(checkTable: string, file: string) {
     console.log(`[migrations] ${file} already applied, skipping`);
     return;
   }
+
   const migrationsDir = path.join(__dirname, "migrations");
-  const script = readFileSync(path.join(migrationsDir, file), "utf-8");
+  const script = readFileSync(
+    path.join(migrationsDir, file),
+    "utf-8"
+  );
+
   await sql.unsafe(script);
+
   console.log(`[migrations] applied ${file}`);
+}
+
+async function applyAlways(file: string) {
+  const migrationsDir = path.join(__dirname, "migrations");
+
+  const script = readFileSync(
+    path.join(migrationsDir, file),
+    "utf-8"
+  );
+
+  await sql.unsafe(script);
+
+  console.log(`[migrations] ensured ${file}`);
 }
 
 export async function runMigrations() {
   await applyIfMissing("logs", "0000_init.sql");
-  await applyIfMissing("logs_hourly_counts", "0001_rollup.sql");
+  await applyIfMissing(
+    "logs_hourly_counts",
+    "0001_rollup.sql"
+  );
+
+  await applyAlways("0002_ts_index.sql");
 }

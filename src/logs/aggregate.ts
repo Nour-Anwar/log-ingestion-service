@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import { sql } from "../db/client.js";
-import { parseAggregateQuery } from "./aggregateValidate.js";
+import { parseAggregateQuery, AggregateParams } from "./aggregateValidate.js";
 
 function bucketToInterval(bucket: string): string {
   switch (bucket) {
@@ -18,91 +18,74 @@ interface BucketRow {
   count: number;
 }
 
-function canUseRollup(bucket: string): boolean {
-  // الـ rollup محسوب بدقة ساعة، فمفيد بس لـ buckets أكبر أو تساوي ساعة
-  return bucket === "1h" || bucket === "1d";
+// الـ rollup بيقدر يخدم بس لو ما فيه q أو attr (مش موجودين بجدول logs_hourly_counts أصلاً)
+function canUseRollup(params: AggregateParams): boolean {
+  const hasQOrAttrs = !!params.q || Object.keys(params.attrs).length > 0;
+  return (params.bucket === "1h" || params.bucket === "1d") && !hasQOrAttrs;
 }
 
-async function queryRollup(
-  since: string,
-  until: string,
-  interval: string,
-  groupBy?: "service" | "level"
-): Promise<BucketRow[]> {
-  if (groupBy === "service") {
+async function queryRollup(params: AggregateParams, interval: string): Promise<BucketRow[]> {
+  const conditions = [sql`hour >= ${params.since}`, sql`hour < ${params.until}`];
+  if (params.service) conditions.push(sql`service = ${params.service}`);
+  if (params.level) conditions.push(sql`level = ${params.level}::log_level`);
+  const whereClause = conditions.reduce((acc, c) => sql`${acc} AND ${c}`);
+
+  if (params.groupBy === "service") {
     return sql<BucketRow[]>`
-      SELECT
-        date_bin(${interval}::interval, hour, TIMESTAMPTZ '2001-01-01') AS start,
-        service AS group,
-        SUM(count)::int AS count
-      FROM logs_hourly_counts
-      WHERE hour >= ${since} AND hour < ${until}
-      GROUP BY start, service
-      ORDER BY start
+      SELECT date_bin(${interval}::interval, hour, TIMESTAMPTZ '2001-01-01') AS start,
+             service AS group, SUM(count)::int AS count
+      FROM logs_hourly_counts WHERE ${whereClause}
+      GROUP BY start, service ORDER BY start
     `;
   }
-  if (groupBy === "level") {
+  if (params.groupBy === "level") {
     return sql<BucketRow[]>`
-      SELECT
-        date_bin(${interval}::interval, hour, TIMESTAMPTZ '2001-01-01') AS start,
-        level AS group,
-        SUM(count)::int AS count
-      FROM logs_hourly_counts
-      WHERE hour >= ${since} AND hour < ${until}
-      GROUP BY start, level
-      ORDER BY start
+      SELECT date_bin(${interval}::interval, hour, TIMESTAMPTZ '2001-01-01') AS start,
+             level AS group, SUM(count)::int AS count
+      FROM logs_hourly_counts WHERE ${whereClause}
+      GROUP BY start, level ORDER BY start
     `;
   }
   const rows = await sql<{ start: string; count: number }[]>`
-    SELECT
-      date_bin(${interval}::interval, hour, TIMESTAMPTZ '2001-01-01') AS start,
-      SUM(count)::int AS count
-    FROM logs_hourly_counts
-    WHERE hour >= ${since} AND hour < ${until}
-    GROUP BY start
-    ORDER BY start
+    SELECT date_bin(${interval}::interval, hour, TIMESTAMPTZ '2001-01-01') AS start,
+           SUM(count)::int AS count
+    FROM logs_hourly_counts WHERE ${whereClause}
+    GROUP BY start ORDER BY start
   `;
   return rows.map((r) => ({ ...r, group: null }));
 }
 
-async function queryLive(
-  since: string,
-  until: string,
-  interval: string,
-  groupBy?: "service" | "level"
-): Promise<BucketRow[]> {
-  if (groupBy === "service") {
+async function queryLive(params: AggregateParams, interval: string): Promise<BucketRow[]> {
+  const conditions = [sql`ts >= ${params.since}`, sql`ts < ${params.until}`];
+  if (params.service) conditions.push(sql`service = ${params.service}`);
+  if (params.level) conditions.push(sql`level = ${params.level}::log_level`);
+  if (params.q) conditions.push(sql`message ILIKE ${"%" + params.q + "%"}`);
+  for (const [key, value] of Object.entries(params.attrs)) {
+    conditions.push(sql`attributes ->> ${key} = ${value}`);
+  }
+  const whereClause = conditions.reduce((acc, c) => sql`${acc} AND ${c}`);
+
+  if (params.groupBy === "service") {
     return sql<BucketRow[]>`
-      SELECT
-        date_bin(${interval}::interval, ts, TIMESTAMPTZ '2001-01-01') AS start,
-        service AS group,
-        COUNT(*)::int AS count
-      FROM logs
-      WHERE ts >= ${since} AND ts < ${until}
-      GROUP BY start, service
-      ORDER BY start
+      SELECT date_bin(${interval}::interval, ts, TIMESTAMPTZ '2001-01-01') AS start,
+             service AS group, COUNT(*)::int AS count
+      FROM logs WHERE ${whereClause}
+      GROUP BY start, service ORDER BY start
     `;
   }
-  if (groupBy === "level") {
+  if (params.groupBy === "level") {
     return sql<BucketRow[]>`
-      SELECT
-        date_bin(${interval}::interval, ts, TIMESTAMPTZ '2001-01-01') AS start,
-        level AS group,
-        COUNT(*)::int AS count
-      FROM logs
-      WHERE ts >= ${since} AND ts < ${until}
-      GROUP BY start, level
-      ORDER BY start
+      SELECT date_bin(${interval}::interval, ts, TIMESTAMPTZ '2001-01-01') AS start,
+             level AS group, COUNT(*)::int AS count
+      FROM logs WHERE ${whereClause}
+      GROUP BY start, level ORDER BY start
     `;
   }
   const rows = await sql<{ start: string; count: number }[]>`
-    SELECT
-      date_bin(${interval}::interval, ts, TIMESTAMPTZ '2001-01-01') AS start,
-      COUNT(*)::int AS count
-    FROM logs
-    WHERE ts >= ${since} AND ts < ${until}
-    GROUP BY start
-    ORDER BY start
+    SELECT date_bin(${interval}::interval, ts, TIMESTAMPTZ '2001-01-01') AS start,
+           COUNT(*)::int AS count
+    FROM logs WHERE ${whereClause}
+    GROUP BY start ORDER BY start
   `;
   return rows.map((r) => ({ ...r, group: null }));
 }
@@ -112,9 +95,9 @@ export async function aggregateLogs(req: Request, res: Response) {
     const params = parseAggregateQuery(req.query as Record<string, unknown>);
     const interval = bucketToInterval(params.bucket);
 
-    const buckets = canUseRollup(params.bucket)
-      ? await queryRollup(params.since, params.until, interval, params.groupBy)
-      : await queryLive(params.since, params.until, interval, params.groupBy);
+    const buckets = canUseRollup(params)
+      ? await queryRollup(params, interval)
+      : await queryLive(params, interval);
 
     return res.status(200).json({ buckets });
   } catch (error) {
