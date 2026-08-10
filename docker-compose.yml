@@ -11,11 +11,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 256M
 
   postgres:
     image: postgres:16-alpine
@@ -41,11 +36,6 @@ services:
       interval: 2s
       timeout: 3s
       retries: 20
-    deploy:
-      resources:
-        limits:
-          cpus: "1"
-          memory: 1G
 
 volumes:
   postgres_data:
