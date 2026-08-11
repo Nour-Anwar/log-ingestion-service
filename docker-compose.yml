@@ -47,9 +47,21 @@ services:
       - -c
       - wal_buffers=16MB
       - -c
+      - wal_compression=on
+      - -c
       - checkpoint_completion_target=0.9
       - -c
-      - max_wal_size=2GB
+      - max_wal_size=2500MB
+      - -c
+      - min_wal_size=1500MB
+      - -c
+      - checkpoint_timeout=5min
+      - -c
+      - bgwriter_delay=20ms
+      - -c
+      - bgwriter_lru_maxpages=200
+      - -c
+      - log_checkpoints=on
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 2s
