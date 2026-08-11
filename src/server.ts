@@ -3,8 +3,6 @@ import app from "./app.js";
 import { sql } from "./db/client.js";
 import { runMigrations } from "./db/runMigrations.js";
 import { ensurePartitions, applyRetention } from "./db/partitions.js";
-import { ensureMessageIndexOnSealedPartitions } from "./db/messageIndex.js";
-
 process.on("uncaughtException", (err) => {
   console.error("[uncaughtException] server stayed alive:", err);
 });
@@ -19,20 +17,9 @@ async function start() {
   await sql`SELECT 1`;
   await runMigrations();
   await ensurePartitions();
-  await ensureMessageIndexOnSealedPartitions().catch((err) => {
-    console.error("[message-index] initial build failed:", err);
-  });
 
-  setInterval(() => ensurePartitions(), 6 * 60 * 60 * 1000);
-  setInterval(
-    () => {
-      ensureMessageIndexOnSealedPartitions().catch((err) => {
-        console.error("[message-index] scheduled build failed:", err);
-      });
-    },
-    60 * 60 * 1000,
-  );
-  setInterval(() => applyRetention(RETENTION_DAYS), 60 * 60 * 1000);
+  setInterval(() => ensurePartitions(), 6 * 60 * 60 * 1000); // كل 6 ساعات
+  setInterval(() => applyRetention(RETENTION_DAYS), 60 * 60 * 1000); // كل ساعة
 
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);

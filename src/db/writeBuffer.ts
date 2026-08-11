@@ -2,7 +2,7 @@ import { sql } from "./client.js";
 import { upsertHourlyCounts } from "./rollup.js";
 
 const FLUSH_INTERVAL_MS = 25;
-const MAX_BATCH_SIZE = 20000;
+const MAX_BATCH_SIZE = 20000; // safety valve: flush early if a batch gets huge
 
 interface AcceptedEntry {
   timestamp: string;
@@ -53,9 +53,6 @@ async function drain() {
   draining = true;
   while (queue.length > 0) {
     const batch = queue.shift()!;
-    if (queue.length > 5) {
-      console.log(`[writeBuffer] queue depth: ${queue.length}, batch size: ${batch.csvRows.length}`);
-    }
     try {
       await flushBatch(batch);
       batch.resolve();
@@ -79,11 +76,16 @@ async function flushBatch(batch: Batch) {
     writable.end();
   });
 
+  // rollup فشله ما لازم يفشّل الـ ingest نفسه — هو تحسين للـ query مش مصدر الحقيقة
   await upsertHourlyCounts(batch.entries).catch((err) => {
     console.error("[writeBuffer] rollup upsert failed:", err);
   });
 }
 
+/**
+ * يضيف rows لل-batch الحالي ويرجع promise بتتحل لما الـ batch
+ * (يلي هاد الـ row انضم إلها) ينكتب فعلياً بقاعدة البيانات.
+ */
 export function enqueueLogs(
   csvRows: string[],
   entries: AcceptedEntry[]
