@@ -53,6 +53,9 @@ async function drain() {
   draining = true;
   while (queue.length > 0) {
     const batch = queue.shift()!;
+    if (queue.length > 5) {
+      console.log(`[writeBuffer] queue depth: ${queue.length}, batch size: ${batch.csvRows.length}`);
+    }
     try {
       await flushBatch(batch);
       batch.resolve();

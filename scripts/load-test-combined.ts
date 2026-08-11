@@ -1,6 +1,6 @@
 import autocannon from "autocannon";
 
-const DURATION_SECONDS = 30;
+const DURATION_SECONDS =120;
 const BATCH_SIZE = 500;
 const CONNECTIONS = 30;
 function buildBatch() {

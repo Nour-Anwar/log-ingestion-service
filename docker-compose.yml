@@ -51,11 +51,11 @@ services:
       - -c
       - checkpoint_completion_target=0.9
       - -c
-      - max_wal_size=2500MB
+      - max_wal_size=1GB
       - -c
-      - min_wal_size=1500MB
+      - min_wal_size=512MB
       - -c
-      - checkpoint_timeout=5min
+      - checkpoint_timeout=2min
       - -c
       - bgwriter_delay=20ms
       - -c
