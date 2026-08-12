@@ -1,5 +1,5 @@
 import { sql } from "./client.js";
-import { upsertHourlyCounts } from "./rollup.js";
+import { queueRollupCounts } from "./rollup.js";
  
 const FLUSH_INTERVAL_MS = 25;
 const MAX_BATCH_SIZE = 20000; // safety valve: flush early if a batch gets huge
@@ -81,11 +81,11 @@ async function flushBatch(batch: Batch) {
     writable.end();
   });
  
-  // rollup فشله ما لازم يفشّل الـ ingest — وكمان ما لازم يأخّر البatch التالي.
-  // فصلناها تماماً (fire-and-forget) بدل await، لأنها مش على الـ critical path.
-  upsertHourlyCounts(batch.entries).catch((err) => {
-    console.error("[writeBuffer] rollup upsert failed:", err);
-  });
+  // rollup فشله ما لازم يفشّل الـ ingest — وكمان ما لازم يأخّر الـ batch التالي.
+  // queueRollupCounts بترجع فوراً (تجميع بالذاكرة فقط)، والكتابة الفعلية
+  // لبوستغرس بتصير مجمّعة ومتسلسلة (upsert واحد بالـ flight بأي لحظة) —
+  // شوف db/rollup.ts للتفاصيل وليش هاد كان لازم يتغيّر.
+  queueRollupCounts(batch.entries);
 }
  
 /**
@@ -112,4 +112,3 @@ export function enqueueLogs(
  
   return batch.promise;
 }
- 
