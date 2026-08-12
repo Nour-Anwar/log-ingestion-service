@@ -1,8 +1,8 @@
 import autocannon from "autocannon";
 
-const DURATION_SECONDS = 30;
-const BATCH_SIZE = 500;
-const CONNECTIONS = 30;
+const DURATION_SECONDS = 120;
+const BATCH_SIZE = 33;
+const CONNECTIONS = 150;
 function buildBatch() {
   const logs = Array.from({ length: BATCH_SIZE }, (_, i) => ({
     timestamp: new Date().toISOString(),
