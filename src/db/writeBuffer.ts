@@ -1,15 +1,19 @@
 import { sql } from "./client.js";
 import { upsertHourlyCounts } from "./rollup.js";
-
+ 
 const FLUSH_INTERVAL_MS = 25;
 const MAX_BATCH_SIZE = 20000; // safety valve: flush early if a batch gets huge
-
+ 
+// كم COPY ممكن يشتغلوا بنفس اللحظة. جرّب 2 / 3 / 4 وشوف وين ألذ throughput
+// بدون ما تزيد الـ context-switching على الـ 1 CPU المخصص لـ Postgres.
+const MAX_CONCURRENT_FLUSHES = 3;
+ 
 interface AcceptedEntry {
   timestamp: string;
   level: string;
   service: string;
 }
-
+ 
 interface Batch {
   csvRows: string[];
   entries: AcceptedEntry[];
@@ -17,7 +21,7 @@ interface Batch {
   reject: (err: unknown) => void;
   promise: Promise<void>;
 }
-
+ 
 function newBatch(): Batch {
   let resolve!: () => void;
   let reject!: (err: unknown) => void;
@@ -27,12 +31,12 @@ function newBatch(): Batch {
   });
   return { csvRows: [], entries: [], resolve, reject, promise };
 }
-
+ 
 let current = newBatch();
 let timer: ReturnType<typeof setTimeout> | null = null;
 const queue: Batch[] = [];
-let draining = false;
-
+let inFlight = 0;
+ 
 function scheduleFlush() {
   if (timer) return;
   timer = setTimeout(() => {
@@ -40,48 +44,50 @@ function scheduleFlush() {
     rotate();
   }, FLUSH_INTERVAL_MS);
 }
-
+ 
 function rotate() {
   if (current.csvRows.length === 0) return;
   queue.push(current);
   current = newBatch();
-  drain();
+  pump();
 }
-
-async function drain() {
-  if (draining) return;
-  draining = true;
-  while (queue.length > 0) {
+ 
+// بدل الـ single-file drain loop: منسمح لعدة flushes يشتغلوا بالتوازي
+// (لحد MAX_CONCURRENT_FLUSHES) بدل ما نستنى batch يخلص بالكامل قبل ما نبلّش التالي.
+function pump() {
+  while (inFlight < MAX_CONCURRENT_FLUSHES && queue.length > 0) {
     const batch = queue.shift()!;
-    try {
-      await flushBatch(batch);
-      batch.resolve();
-    } catch (err) {
-      batch.reject(err);
-    }
+    inFlight++;
+    flushBatch(batch)
+      .then(() => batch.resolve())
+      .catch((err) => batch.reject(err))
+      .finally(() => {
+        inFlight--;
+        pump(); // فضي مكان؟ خود batch تاني من الطابور فوراً
+      });
   }
-  draining = false;
 }
-
+ 
 async function flushBatch(batch: Batch) {
   const writable = await sql`
     COPY logs (ts, level, service, message, attributes)
     FROM STDIN WITH (FORMAT csv)
   `.writable();
-
+ 
   await new Promise<void>((resolve, reject) => {
     writable.on("error", reject);
     writable.on("finish", resolve);
     writable.write(batch.csvRows.join(""));
     writable.end();
   });
-
-  // rollup فشله ما لازم يفشّل الـ ingest نفسه — هو تحسين للـ query مش مصدر الحقيقة
-  await upsertHourlyCounts(batch.entries).catch((err) => {
+ 
+  // rollup فشله ما لازم يفشّل الـ ingest — وكمان ما لازم يأخّر البatch التالي.
+  // فصلناها تماماً (fire-and-forget) بدل await، لأنها مش على الـ critical path.
+  upsertHourlyCounts(batch.entries).catch((err) => {
     console.error("[writeBuffer] rollup upsert failed:", err);
   });
 }
-
+ 
 /**
  * يضيف rows لل-batch الحالي ويرجع promise بتتحل لما الـ batch
  * (يلي هاد الـ row انضم إلها) ينكتب فعلياً بقاعدة البيانات.
@@ -93,7 +99,7 @@ export function enqueueLogs(
   const batch = current;
   batch.csvRows.push(...csvRows);
   batch.entries.push(...entries);
-
+ 
   if (batch.csvRows.length >= MAX_BATCH_SIZE) {
     if (timer) {
       clearTimeout(timer);
@@ -103,6 +109,7 @@ export function enqueueLogs(
   } else {
     scheduleFlush();
   }
-
+ 
   return batch.promise;
 }
+ 
