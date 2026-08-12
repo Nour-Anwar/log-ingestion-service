@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
 import { sql } from "../db/client.js";
 import { parseAggregateQuery, AggregateParams } from "./aggregateValidate.js";
-
+ 
 function bucketToInterval(bucket: string): string {
   switch (bucket) {
     case "1m": return "1 minute";
@@ -11,25 +11,43 @@ function bucketToInterval(bucket: string): string {
     default: throw new Error("invalid bucket");
   }
 }
-
+ 
 interface BucketRow {
   start: string;
   group: string | null;
   count: number;
 }
-
-// الـ rollup بيقدر يخدم بس لو ما فيه q أو attr (مش موجودين بجدول logs_hourly_counts أصلاً)
+ 
+// الـ rollup مخزّن بدقة "ساعة كاملة" فقط (hour = بداية الساعة بالضبط).
+// لو since/until مش محاذيين على حدود الساعة، فلترة "hour >= since" بترفض
+// كل bucket فيه بيانات صحيحة بس بدايته أقدم من since — نتيجة غلط بصمت.
+// فمنستخدم الـ rollup بس لما الحدود محاذية فعلاً، وإلا نرجع للجدول الحقيقي.
+function isHourAligned(iso: string): boolean {
+  const d = new Date(iso);
+  return (
+    d.getUTCMinutes() === 0 &&
+    d.getUTCSeconds() === 0 &&
+    d.getUTCMilliseconds() === 0
+  );
+}
+ 
 function canUseRollup(params: AggregateParams): boolean {
   const hasQOrAttrs = !!params.q || Object.keys(params.attrs).length > 0;
-  return (params.bucket === "1h" || params.bucket === "1d") && !hasQOrAttrs;
+  const boundsAligned =
+    isHourAligned(params.since) && isHourAligned(params.until);
+  return (
+    (params.bucket === "1h" || params.bucket === "1d") &&
+    !hasQOrAttrs &&
+    boundsAligned
+  );
 }
-
+ 
 async function queryRollup(params: AggregateParams, interval: string): Promise<BucketRow[]> {
   const conditions = [sql`hour >= ${params.since}`, sql`hour < ${params.until}`];
   if (params.service) conditions.push(sql`service = ${params.service}`);
   if (params.level) conditions.push(sql`level = ${params.level}::log_level`);
   const whereClause = conditions.reduce((acc, c) => sql`${acc} AND ${c}`);
-
+ 
   if (params.groupBy === "service") {
     return sql<BucketRow[]>`
       SELECT date_bin(${interval}::interval, hour, TIMESTAMPTZ '2001-01-01') AS start,
@@ -54,7 +72,7 @@ async function queryRollup(params: AggregateParams, interval: string): Promise<B
   `;
   return rows.map((r) => ({ ...r, group: null }));
 }
-
+ 
 async function queryLive(params: AggregateParams, interval: string): Promise<BucketRow[]> {
   const conditions = [sql`ts >= ${params.since}`, sql`ts < ${params.until}`];
   if (params.service) conditions.push(sql`service = ${params.service}`);
@@ -64,7 +82,7 @@ async function queryLive(params: AggregateParams, interval: string): Promise<Buc
     conditions.push(sql`attributes ->> ${key} = ${value}`);
   }
   const whereClause = conditions.reduce((acc, c) => sql`${acc} AND ${c}`);
-
+ 
   if (params.groupBy === "service") {
     return sql<BucketRow[]>`
       SELECT date_bin(${interval}::interval, ts, TIMESTAMPTZ '2001-01-01') AS start,
@@ -89,16 +107,16 @@ async function queryLive(params: AggregateParams, interval: string): Promise<Buc
   `;
   return rows.map((r) => ({ ...r, group: null }));
 }
-
+ 
 export async function aggregateLogs(req: Request, res: Response) {
   try {
     const params = parseAggregateQuery(req.query as Record<string, unknown>);
     const interval = bucketToInterval(params.bucket);
-
+ 
     const buckets = canUseRollup(params)
       ? await queryRollup(params, interval)
       : await queryLive(params, interval);
-
+ 
     return res.status(200).json({ buckets });
   } catch (error) {
     return res.status(400).json({ error: (error as Error).message });
