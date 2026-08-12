@@ -2,11 +2,7 @@ import "dotenv/config";
 import postgres from "postgres";
 
 const connectionString = process.env.DATABASE_URL;
+if (!connectionString) throw new Error("DATABASE_URL is not set");
 
-if (!connectionString) {
-  throw new Error("DATABASE_URL is not set");
-}
-
-export const sql = postgres(connectionString, {
-  max: 50,
-});
+export const sql = postgres(connectionString, { max: 10 });      // ingest / rollup
+export const readSql = postgres(connectionString, { max: 15 }); // query / aggregate

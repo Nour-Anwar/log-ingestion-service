@@ -1,4 +1,4 @@
-import { sql } from "../db/client.js";
+import { readSql as sql } from "../db/client.js";
 
 export interface LogQueryParams {
   service?: string;
