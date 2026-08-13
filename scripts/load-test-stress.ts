@@ -24,13 +24,17 @@ async function run() {
     connections: CONNECTIONS,
     duration: DURATION_SECONDS,
     timeout: 10,
+    pipelining: 1,
   });
 
   console.log(`\nConnections: ${CONNECTIONS}`);
   console.log(`Requests/sec: ${result.requests.average.toFixed(1)}`);
   console.log(`Logs/sec:     ${(result.requests.average * BATCH_SIZE).toFixed(0)}`);
   console.log(`Latency p50/p99: ${result.latency.p50}ms / ${result.latency.p99}ms`);
-  console.log(`Errors: ${result.errors}, Timeouts: ${result.timeouts}`);
+  console.log(`2xx responses:   ${result["2xx"] ?? "n/a"}`);
+  console.log(`Non-2xx (real server errors): ${result.non2xx ?? "n/a"}`);
+  console.log(`Client-side timeouts (no response in time): ${result.timeouts}`);
+  console.log(`Connection errors (refused/reset): ${result.errors}`);
 }
 
 run();

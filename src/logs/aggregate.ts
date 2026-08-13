@@ -297,7 +297,6 @@ async function runAggregate(
   params: AggregateParams,
   interval: string,
 ): Promise<BucketRow[]> {
-  
   if (!canUseRollup(params)) {
     return queryLive(
       params,
@@ -316,7 +315,12 @@ async function runAggregate(
   const endHour = new Date(until);
   endHour.setUTCMinutes(0, 0, 0);
 
-  
+  /*
+   * Query داخل نفس الساعة:
+   *
+   * نستخدم live query لأن الـ rollup مخزن على مستوى
+   * الساعة ولا يستطيع تمثيل partial-hour بدقة.
+   */
   if (
     startHour.getTime() === endHour.getTime()
   ) {
@@ -365,7 +369,10 @@ async function runAggregate(
     }
   }
 
-  
+  /*
+   * PART 2:
+   * الساعات الكاملة الموجودة في الـ rollup.
+   */
   const rollupSince = new Date(
     startHour.getTime() + HOUR_MS,
   );
@@ -389,17 +396,28 @@ async function runAggregate(
     );
   }
 
-  
-  if (
-    endHour.getTime() <
-    until.getTime()
-  ) {
+  /*
+   * PART 3:
+   * الساعة الحالية / آخر جزء من الساعة.
+   *
+   * بدل عمل COUNT على الـ active partition أثناء
+   * ingestion، نستخدم الـ rollup.
+   *
+   * الـ rollup يتحدث بشكل دوري، لذلك قد يكون هناك
+   * تأخير بسيط في أحدث البيانات، لكنه يمنع aggregate
+   * من إجراء live scan مكلف تحت ضغط الكتابة.
+   */
+  if (endHour.getTime() < until.getTime()) {
+    const currentHourEnd = new Date(
+      endHour.getTime() + HOUR_MS,
+    );
+
     parts.push(
-      await queryLive(
+      await queryRollup(
         params,
         interval,
         endHour.toISOString(),
-        until.toISOString(),
+        currentHourEnd.toISOString(),
       ),
     );
   }
