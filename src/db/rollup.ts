@@ -13,19 +13,16 @@ interface RollupRow {
   count: number;
 }
 
-const ROLLUP_FLUSH_INTERVAL_MS = 500;
-const MAX_PENDING_GROUPS = 10000;
+const ROLLUP_FLUSH_INTERVAL_MS = 150;
+const MAX_PENDING_GROUPS = 5000;
 
 let pending = new Map<string, RollupRow>();
-
 let timer: ReturnType<typeof setTimeout> | null = null;
 let flushing = false;
 
 function truncHour(iso: string): string {
   const date = new Date(iso);
-
   date.setUTCMinutes(0, 0, 0);
-
   return date.toISOString();
 }
 
@@ -33,14 +30,11 @@ function mergeEntries(entries: AcceptedEntry[]) {
   for (const entry of entries) {
     const hour = truncHour(entry.timestamp);
     const key = `${hour}|${entry.service}|${entry.level}`;
-
     const existing = pending.get(key);
-
     if (existing) {
       existing.count++;
       continue;
     }
-
     pending.set(key, {
       hour,
       service: entry.service,
@@ -54,7 +48,6 @@ function scheduleDrain() {
   if (timer !== null || flushing || pending.size === 0) {
     return;
   }
-
   timer = setTimeout(() => {
     timer = null;
     void drain();
@@ -74,12 +67,10 @@ async function drain() {
   }
 
   flushing = true;
-
   const batch = takePendingBatch();
 
   try {
     const rows = [...batch.values()];
-
     if (rows.length === 0) {
       return;
     }
@@ -120,18 +111,15 @@ async function drain() {
   } catch (error) {
     for (const [key, row] of batch) {
       const existing = pending.get(key);
-
       if (existing) {
         existing.count += row.count;
       } else {
         pending.set(key, row);
       }
     }
-
     console.error("[rollup] batched upsert failed:", error);
   } finally {
     flushing = false;
-
     if (pending.size >= MAX_PENDING_GROUPS) {
       void drain();
     } else {
@@ -140,9 +128,7 @@ async function drain() {
   }
 }
 
-export function queueRollupCounts(
-  entries: AcceptedEntry[],
-) {
+export function queueRollupCounts(entries: AcceptedEntry[]) {
   if (entries.length === 0) {
     return;
   }
@@ -154,11 +140,9 @@ export function queueRollupCounts(
       clearTimeout(timer);
       timer = null;
     }
-
     if (!flushing) {
       void drain();
     }
-
     return;
   }
 
