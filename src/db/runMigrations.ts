@@ -24,9 +24,10 @@ async function applyIfMissing(checkTable: string, file: string) {
   }
 
   const migrationsDir = path.join(__dirname, "migrations");
+
   const script = readFileSync(
     path.join(migrationsDir, file),
-    "utf-8"
+    "utf-8",
   );
 
   await sql.unsafe(script);
@@ -39,7 +40,7 @@ async function applyAlways(file: string) {
 
   const script = readFileSync(
     path.join(migrationsDir, file),
-    "utf-8"
+    "utf-8",
   );
 
   await sql.unsafe(script);
@@ -49,11 +50,15 @@ async function applyAlways(file: string) {
 
 export async function runMigrations() {
   await applyIfMissing("logs", "0000_init.sql");
+
   await applyIfMissing(
     "logs_hourly_counts",
-    "0001_rollup.sql"
+    "0001_rollup.sql",
   );
 
   await applyAlways("0002_ts_index.sql");
-  await applyAlways("0003_aggregate_indexes.sql"); 
+
+  await applyAlways("0003_aggregate_indexes.sql");
+
+  await applyAlways("0005_drop_level_index.sql");
 }

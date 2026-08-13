@@ -30,51 +30,74 @@ function escapeLike(value: string): string {
     .replaceAll("_", "\\_");
 }
 
-export async function queryLogs(params: LogQueryParams) {
+function buildConditions(params: LogQueryParams) {
   const conditions = [];
 
   if (params.service) {
-    conditions.push(sql`service = ${params.service}`);
+    conditions.push(
+      sql`service = ${params.service}`,
+    );
   }
 
   if (params.level) {
-    conditions.push(sql`level = ${params.level}::log_level`);
+    conditions.push(
+      sql`level = ${params.level}::log_level`,
+    );
   }
 
   if (params.since) {
-    conditions.push(sql`ts >= ${params.since}`);
+    conditions.push(
+      sql`ts >= ${params.since}`,
+    );
   }
 
   if (params.until) {
-    conditions.push(sql`ts < ${params.until}`);
+    conditions.push(
+      sql`ts < ${params.until}`,
+    );
+  }
+
+  if (params.cursor) {
+    conditions.push(
+      sql`(ts, id) < (${params.cursor.ts}, ${params.cursor.id})`,
+    );
   }
 
   if (params.q) {
     const q = escapeLike(params.q);
 
     conditions.push(
-      sql`message ILIKE ${"%" + q + "%"} ESCAPE '\\'`
+      sql`
+        message ILIKE ${"%" + q + "%"}
+        ESCAPE '\\'
+      `,
     );
   }
 
-  for (const [key, value] of Object.entries(params.attrs)) {
+  for (const [key, value] of Object.entries(
+    params.attrs,
+  )) {
     conditions.push(
-      sql`attributes ->> ${key} = ${value}`
+      sql`attributes ->> ${key} = ${value}`,
     );
   }
 
-  if (params.cursor) {
-    conditions.push(
-      sql`(ts, id) < (${params.cursor.ts}, ${params.cursor.id})`
-    );
+  if (conditions.length === 0) {
+    return sql``;
   }
 
-  const whereClause =
-    conditions.length > 0
-      ? sql`WHERE ${conditions.reduce(
-          (acc, condition) => sql`${acc} AND ${condition}`
-        )}`
-      : sql``;
+  return sql`
+    WHERE ${conditions.reduce(
+      (acc, condition) =>
+        sql`${acc} AND ${condition}`,
+    )}
+  `;
+}
+
+export async function queryLogs(
+  params: LogQueryParams,
+) {
+  const whereClause = buildConditions(params);
 
   const rows = await sql<LogRowDb[]>`
     SELECT
@@ -96,12 +119,13 @@ export async function queryLogs(params: LogQueryParams) {
     ? rows.slice(0, params.limit)
     : rows;
 
-  const nextCursor = hasMore
-    ? encodeCursor(
-        logs[logs.length - 1].ts,
-        logs[logs.length - 1].id
-      )
-    : null;
+  const nextCursor =
+    hasMore && logs.length > 0
+      ? encodeCursor(
+          logs[logs.length - 1].ts,
+          logs[logs.length - 1].id,
+        )
+      : null;
 
   return {
     logs: logs.map((log) => ({
@@ -118,21 +142,22 @@ export async function queryLogs(params: LogQueryParams) {
 
 export function encodeCursor(
   ts: string,
-  id: string | number
+  id: string | number,
 ) {
-  return Buffer
-    .from(
-      JSON.stringify({
-        ts,
-        id: Number(id),
-      })
-    )
-    .toString("base64url");
+  return Buffer.from(
+    JSON.stringify({
+      ts,
+      id: Number(id),
+    }),
+  ).toString("base64url");
 }
 
 export function decodeCursor(cursor: string) {
   const data = JSON.parse(
-    Buffer.from(cursor, "base64url").toString()
+    Buffer.from(
+      cursor,
+      "base64url",
+    ).toString(),
   );
 
   if (

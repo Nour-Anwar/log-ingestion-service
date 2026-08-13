@@ -6,25 +6,27 @@ interface AcceptedEntry {
   service: string;
 }
 
-const ROLLUP_FLUSH_INTERVAL_MS = 50;
+interface RollupRow {
+  hour: string;
+  service: string;
+  level: string;
+  count: number;
+}
 
-let pending = new Map<
-  string,
-  {
-    hour: string;
-    service: string;
-    level: string;
-    count: number;
-  }
->();
+const ROLLUP_FLUSH_INTERVAL_MS = 500;
+const MAX_PENDING_GROUPS = 10000;
+
+let pending = new Map<string, RollupRow>();
 
 let timer: ReturnType<typeof setTimeout> | null = null;
 let flushing = false;
 
 function truncHour(iso: string): string {
-  const d = new Date(iso);
-  d.setUTCMinutes(0, 0, 0);
-  return d.toISOString();
+  const date = new Date(iso);
+
+  date.setUTCMinutes(0, 0, 0);
+
+  return date.toISOString();
 }
 
 function mergeEntries(entries: AcceptedEntry[]) {
@@ -35,20 +37,21 @@ function mergeEntries(entries: AcceptedEntry[]) {
     const existing = pending.get(key);
 
     if (existing) {
-      existing.count += 1;
-    } else {
-      pending.set(key, {
-        hour,
-        service: entry.service,
-        level: entry.level,
-        count: 1,
-      });
+      existing.count++;
+      continue;
     }
+
+    pending.set(key, {
+      hour,
+      service: entry.service,
+      level: entry.level,
+      count: 1,
+    });
   }
 }
 
 function scheduleDrain() {
-  if (timer || flushing || pending.size === 0) {
+  if (timer !== null || flushing || pending.size === 0) {
     return;
   }
 
@@ -56,6 +59,12 @@ function scheduleDrain() {
     timer = null;
     void drain();
   }, ROLLUP_FLUSH_INTERVAL_MS);
+}
+
+function takePendingBatch(): Map<string, RollupRow> {
+  const batch = pending;
+  pending = new Map();
+  return batch;
 }
 
 async function drain() {
@@ -66,21 +75,19 @@ async function drain() {
 
   flushing = true;
 
-  const batch = pending;
-  pending = new Map();
+  const batch = takePendingBatch();
 
   try {
-    const hours: string[] = [];
-    const services: string[] = [];
-    const levels: string[] = [];
-    const values: number[] = [];
+    const rows = [...batch.values()];
 
-    for (const row of batch.values()) {
-      hours.push(row.hour);
-      services.push(row.service);
-      levels.push(row.level);
-      values.push(row.count);
+    if (rows.length === 0) {
+      return;
     }
+
+    const hours = rows.map((row) => row.hour);
+    const services = rows.map((row) => row.service);
+    const levels = rows.map((row) => row.level);
+    const counts = rows.map((row) => row.count);
 
     await sql`
       INSERT INTO logs_hourly_counts (
@@ -98,8 +105,8 @@ async function drain() {
         ${hours}::timestamptz[],
         ${services}::text[],
         ${levels}::text[],
-        ${values}::bigint[]
-      ) AS t(
+        ${counts}::bigint[]
+      ) AS incoming(
         hour,
         service,
         level,
@@ -111,12 +118,6 @@ async function drain() {
           logs_hourly_counts.count + EXCLUDED.count
     `;
   } catch (error) {
-    /*
-     * Don't silently lose the batch.
-     *
-     * Put it back into pending so the next drain
-     * can retry it.
-     */
     for (const [key, row] of batch) {
       const existing = pending.get(key);
 
@@ -130,15 +131,36 @@ async function drain() {
     console.error("[rollup] batched upsert failed:", error);
   } finally {
     flushing = false;
-    scheduleDrain();
+
+    if (pending.size >= MAX_PENDING_GROUPS) {
+      void drain();
+    } else {
+      scheduleDrain();
+    }
   }
 }
 
-export function queueRollupCounts(entries: AcceptedEntry[]) {
+export function queueRollupCounts(
+  entries: AcceptedEntry[],
+) {
   if (entries.length === 0) {
     return;
   }
 
   mergeEntries(entries);
+
+  if (pending.size >= MAX_PENDING_GROUPS) {
+    if (timer !== null) {
+      clearTimeout(timer);
+      timer = null;
+    }
+
+    if (!flushing) {
+      void drain();
+    }
+
+    return;
+  }
+
   scheduleDrain();
 }

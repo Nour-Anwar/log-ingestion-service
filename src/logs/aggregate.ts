@@ -9,12 +9,16 @@ function bucketToInterval(bucket: string): string {
   switch (bucket) {
     case "1m":
       return "1 minute";
+
     case "5m":
       return "5 minutes";
+
     case "1h":
       return "1 hour";
+
     case "1d":
       return "1 day";
+
     default:
       throw new Error("invalid bucket");
   }
@@ -29,16 +33,31 @@ interface BucketRow {
 const HOUR_MS = 60 * 60 * 1000;
 
 function canUseRollup(params: AggregateParams): boolean {
-  const hasQOrAttrs =
-    !!params.q || Object.keys(params.attrs).length > 0;
+  /*
+   * الـ rollup يحتوي فقط:
+   * hour + service + level + count
+   *
+   * لذلك لا يمكن استخدامه مع:
+   * q
+   * attributes
+   */
+  if (params.q) {
+    return false;
+  }
+
+  if (Object.keys(params.attrs).length > 0) {
+    return false;
+  }
 
   return (
-    (params.bucket === "1h" || params.bucket === "1d") &&
-    !hasQOrAttrs
+    params.bucket === "1h" ||
+    params.bucket === "1d"
   );
 }
 
-function mergeBuckets(parts: BucketRow[][]): BucketRow[] {
+function mergeBuckets(
+  parts: BucketRow[][],
+): BucketRow[] {
   const merged = new Map<string, BucketRow>();
 
   for (const rows of parts) {
@@ -50,26 +69,31 @@ function mergeBuckets(parts: BucketRow[][]): BucketRow[] {
       if (existing) {
         existing.count += row.count;
       } else {
-        merged.set(key, { ...row });
+        merged.set(key, {
+          start: row.start,
+          group: row.group,
+          count: row.count,
+        });
       }
     }
   }
 
-  return [...merged.values()].sort((a, b) =>
-    a.start < b.start
-      ? -1
-      : a.start > b.start
-        ? 1
-        : 0
-  );
+  return [...merged.values()].sort((a, b) => {
+    if (a.start < b.start) return -1;
+    if (a.start > b.start) return 1;
+
+    const aGroup = a.group ?? "";
+    const bGroup = b.group ?? "";
+
+    return aGroup.localeCompare(bGroup);
+  });
 }
 
-async function queryRollup(
+function buildRollupConditions(
   params: AggregateParams,
-  interval: string,
   since: string,
-  until: string
-): Promise<BucketRow[]> {
+  until: string,
+) {
   const conditions = [
     sql`hour >= ${since}`,
     sql`hour < ${until}`,
@@ -77,18 +101,32 @@ async function queryRollup(
 
   if (params.service) {
     conditions.push(
-      sql`service = ${params.service}`
+      sql`service = ${params.service}`,
     );
   }
 
   if (params.level) {
     conditions.push(
-      sql`level = ${params.level}::log_level`
+      sql`level = ${params.level}::log_level`,
     );
   }
 
-  const whereClause = conditions.reduce(
-    (acc, condition) => sql`${acc} AND ${condition}`
+  return conditions.reduce(
+    (acc, condition) =>
+      sql`${acc} AND ${condition}`,
+  );
+}
+
+async function queryRollup(
+  params: AggregateParams,
+  interval: string,
+  since: string,
+  until: string,
+): Promise<BucketRow[]> {
+  const whereClause = buildRollupConditions(
+    params,
+    since,
+    until,
   );
 
   if (params.groupBy === "service") {
@@ -100,11 +138,11 @@ async function queryRollup(
           TIMESTAMPTZ '2001-01-01'
         ) AS start,
         service AS group,
-        SUM(count)::int AS count
+        SUM(count)::bigint AS count
       FROM logs_hourly_counts
       WHERE ${whereClause}
       GROUP BY start, service
-      ORDER BY start
+      ORDER BY start, service
     `;
   }
 
@@ -117,42 +155,40 @@ async function queryRollup(
           TIMESTAMPTZ '2001-01-01'
         ) AS start,
         level AS group,
-        SUM(count)::int AS count
+        SUM(count)::bigint AS count
       FROM logs_hourly_counts
       WHERE ${whereClause}
       GROUP BY start, level
-      ORDER BY start
+      ORDER BY start, level
     `;
   }
 
-  const rows = await sql<
-    { start: string; count: number }[]
-  >`
+  return sql<{ start: string; count: number }[]>`
     SELECT
       date_bin(
         ${interval}::interval,
         hour,
         TIMESTAMPTZ '2001-01-01'
       ) AS start,
-      SUM(count)::int AS count
+      SUM(count)::bigint AS count
     FROM logs_hourly_counts
     WHERE ${whereClause}
     GROUP BY start
     ORDER BY start
-  `;
-
-  return rows.map((row) => ({
-    ...row,
-    group: null,
-  }));
+  `.then((rows) =>
+    rows.map((row) => ({
+      start: row.start,
+      group: null,
+      count: row.count,
+    })),
+  );
 }
 
-async function queryLive(
+function buildLiveConditions(
   params: AggregateParams,
-  interval: string,
   since: string,
-  until: string
-): Promise<BucketRow[]> {
+  until: string,
+) {
   const conditions = [
     sql`ts >= ${since}`,
     sql`ts < ${until}`,
@@ -160,32 +196,46 @@ async function queryLive(
 
   if (params.service) {
     conditions.push(
-      sql`service = ${params.service}`
+      sql`service = ${params.service}`,
     );
   }
 
   if (params.level) {
     conditions.push(
-      sql`level = ${params.level}::log_level`
+      sql`level = ${params.level}::log_level`,
     );
   }
 
   if (params.q) {
     conditions.push(
-      sql`message ILIKE ${"%" + params.q + "%"}`
+      sql`message ILIKE ${"%" + params.q + "%"}`,
     );
   }
 
   for (const [key, value] of Object.entries(
-    params.attrs
+    params.attrs,
   )) {
     conditions.push(
-      sql`attributes ->> ${key} = ${value}`
+      sql`attributes ->> ${key} = ${value}`,
     );
   }
 
-  const whereClause = conditions.reduce(
-    (acc, condition) => sql`${acc} AND ${condition}`
+  return conditions.reduce(
+    (acc, condition) =>
+      sql`${acc} AND ${condition}`,
+  );
+}
+
+async function queryLive(
+  params: AggregateParams,
+  interval: string,
+  since: string,
+  until: string,
+): Promise<BucketRow[]> {
+  const whereClause = buildLiveConditions(
+    params,
+    since,
+    until,
   );
 
   if (params.groupBy === "service") {
@@ -197,11 +247,11 @@ async function queryLive(
           TIMESTAMPTZ '2001-01-01'
         ) AS start,
         service AS group,
-        COUNT(*)::int AS count
+        COUNT(*)::bigint AS count
       FROM logs
       WHERE ${whereClause}
       GROUP BY start, service
-      ORDER BY start
+      ORDER BY start, service
     `;
   }
 
@@ -214,51 +264,46 @@ async function queryLive(
           TIMESTAMPTZ '2001-01-01'
         ) AS start,
         level AS group,
-        COUNT(*)::int AS count
+        COUNT(*)::bigint AS count
       FROM logs
       WHERE ${whereClause}
       GROUP BY start, level
-      ORDER BY start
+      ORDER BY start, level
     `;
   }
 
-  const rows = await sql<
-    { start: string; count: number }[]
-  >`
+  return sql<{ start: string; count: number }[]>`
     SELECT
       date_bin(
         ${interval}::interval,
         ts,
         TIMESTAMPTZ '2001-01-01'
       ) AS start,
-      COUNT(*)::int AS count
+      COUNT(*)::bigint AS count
     FROM logs
     WHERE ${whereClause}
     GROUP BY start
     ORDER BY start
-  `;
-
-  return rows.map((row) => ({
-    ...row,
-    group: null,
-  }));
+  `.then((rows) =>
+    rows.map((row) => ({
+      start: row.start,
+      group: null,
+      count: row.count,
+    })),
+  );
 }
 
 async function runAggregate(
   params: AggregateParams,
-  interval: string
+  interval: string,
 ): Promise<BucketRow[]> {
-  /*
-   * Queries using message search or JSON attributes
-   * cannot use the rollup because the rollup does not
-   * contain those fields.
-   */
+  
   if (!canUseRollup(params)) {
     return queryLive(
       params,
       interval,
       params.since,
-      params.until
+      params.until,
     );
   }
 
@@ -271,33 +316,33 @@ async function runAggregate(
   const endHour = new Date(until);
   endHour.setUTCMinutes(0, 0, 0);
 
-  /*
-   * Query shorter than one hour:
-   * there is no complete hourly rollup.
-   */
-  if (startHour.getTime() === endHour.getTime()) {
+  
+  if (
+    startHour.getTime() === endHour.getTime()
+  ) {
     return queryLive(
       params,
       interval,
       params.since,
-      params.until
+      params.until,
     );
   }
 
   const parts: BucketRow[][] = [];
 
   /*
-   * First partial hour.
+   * PART 1:
+   * الجزء الأول من الساعة.
    *
-   * Example:
-   * 14:35 -> 15:00
+   * مثال:
+   * 14:35 → 15:00
    */
   if (
     since.getTime() <
     startHour.getTime() + HOUR_MS
   ) {
     const firstHourEnd = new Date(
-      startHour.getTime() + HOUR_MS
+      startHour.getTime() + HOUR_MS,
     );
 
     const firstUntil =
@@ -305,25 +350,24 @@ async function runAggregate(
         ? firstHourEnd
         : until;
 
-    if (since.getTime() < firstUntil.getTime()) {
+    if (
+      since.getTime() <
+      firstUntil.getTime()
+    ) {
       parts.push(
         await queryLive(
           params,
           interval,
           since.toISOString(),
-          firstUntil.toISOString()
-        )
+          firstUntil.toISOString(),
+        ),
       );
     }
   }
 
-  /*
-   * Complete hours.
-   *
-   * These are served from the rollup table.
-   */
+  
   const rollupSince = new Date(
-    startHour.getTime() + HOUR_MS
+    startHour.getTime() + HOUR_MS,
   );
 
   const rollupUntil =
@@ -340,22 +384,23 @@ async function runAggregate(
         params,
         interval,
         rollupSince.toISOString(),
-        rollupUntil.toISOString()
-      )
+        rollupUntil.toISOString(),
+      ),
     );
   }
 
-  /*
-   * Last partial/current hour.
-   */
-  if (endHour.getTime() < until.getTime()) {
+  
+  if (
+    endHour.getTime() <
+    until.getTime()
+  ) {
     parts.push(
       await queryLive(
         params,
         interval,
         endHour.toISOString(),
-        until.toISOString()
-      )
+        until.toISOString(),
+      ),
     );
   }
 
@@ -364,20 +409,20 @@ async function runAggregate(
 
 export async function aggregateLogs(
   req: Request,
-  res: Response
+  res: Response,
 ) {
   try {
     const params = parseAggregateQuery(
-      req.query as Record<string, unknown>
+      req.query as Record<string, unknown>,
     );
 
     const interval = bucketToInterval(
-      params.bucket
+      params.bucket,
     );
 
     const buckets = await runAggregate(
       params,
-      interval
+      interval,
     );
 
     return res.status(200).json({
