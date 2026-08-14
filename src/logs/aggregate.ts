@@ -407,17 +407,22 @@ async function runAggregate(
    * تأخير بسيط في أحدث البيانات، لكنه يمنع aggregate
    * من إجراء live scan مكلف تحت ضغط الكتابة.
    */
-  if (endHour.getTime() < until.getTime()) {
+ if (endHour.getTime() < until.getTime()) {
     const currentHourEnd = new Date(
       endHour.getTime() + HOUR_MS,
     );
 
+    const currentHourUntil =
+      currentHourEnd.getTime() < until.getTime()
+        ? currentHourEnd
+        : until;
+
     parts.push(
-      await queryRollup(
+      await queryLive(
         params,
         interval,
         endHour.toISOString(),
-        currentHourEnd.toISOString(),
+        currentHourUntil.toISOString(),
       ),
     );
   }

@@ -1,9 +1,9 @@
 import { sql } from "./client.js";
 import { queueRollupCounts } from "./rollup.js";
 
-const FLUSH_INTERVAL_MS = 25;
-const MAX_BATCH_SIZE = 8000;
-const MAX_CONCURRENT_FLUSHES = 2;
+const FLUSH_INTERVAL_MS = 75;
+const MAX_BATCH_SIZE = 25000;
+const MAX_CONCURRENT_FLUSHES = 1;
 
 interface AcceptedEntry {
   timestamp: string;
