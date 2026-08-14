@@ -1,5 +1,7 @@
 import { sql } from "./client.js";
 import { ensureMessageIndexesOnSealedPartitions } from "./messageIndex.js";
+import { ensureAttributesIndexesOnSealedPartitions } from "./attributesIndex.js";
+
 function partitionName(date: Date): string {
   const y = date.getUTCFullYear();
   const m = String(date.getUTCMonth() + 1).padStart(2, "0");
@@ -33,6 +35,7 @@ export async function ensurePartitions(daysBack = 1, daysForward = 3) {
     `);
   }
   await ensureMessageIndexesOnSealedPartitions();
+  await ensureAttributesIndexesOnSealedPartitions();
 }
 
 // يحذف partitions الأقدم من retentionDays (DROP، مش DELETE)

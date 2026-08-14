@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import { logEntrySchema } from "./validate.js";
+import { validateLogEntry } from "./validate.js";
 import { enqueueLogs } from "../db/writeBuffer.js";
 
 function csvField(value: string): string {
@@ -7,13 +7,13 @@ function csvField(value: string): string {
 }
 
 function buildCsvRow(entry: {
-  timestamp: string;
+  parsedTimestamp: Date;
   level: string;
   service: string;
   message: string;
   attributes: Record<string, unknown>;
 }): string {
-  const ts = new Date(entry.timestamp).toISOString();
+  const ts = entry.parsedTimestamp.toISOString();
 
   return (
     csvField(ts) +
@@ -56,14 +56,12 @@ export async function ingestLogs(
   for (let index = 0; index < body.logs.length; index++) {
     const raw = body.logs[index];
 
-    const result = logEntrySchema.safeParse(raw);
+    const result = validateLogEntry(raw);
 
-    if (!result.success) {
+    if (!result.success || !result.data) {
       rejected.push({
         index,
-        reason:
-          result.error.issues[0]?.message ??
-          "invalid entry",
+        reason: result.error ?? "invalid entry",
       });
 
       continue;

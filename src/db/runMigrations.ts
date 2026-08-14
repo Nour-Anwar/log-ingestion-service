@@ -48,9 +48,12 @@ export async function runMigrations() {
     await applyIfMissing("logs_hourly_counts", "0001_rollup.sql");
     await applyAlways("0002_ts_index.sql");
     await applyAlways("0003_aggregate_indexes.sql");
+    await applyAlways("0004_unlogged_rollup.sql");
     await applyAlways("0005_drop_level_index.sql");
     await applyAlways("0006_drop_duplicate_ts_index.sql");
     await applyAlways("0007_drop_redundant_service_index.sql");
+    await applyAlways("0008_drop_dead_level_index.sql");
+    await applyAlways("0009_drop_parent_attrs_index.sql");
   } finally {
     await sql`SELECT pg_advisory_unlock(${MIGRATIONS_LOCK_KEY})`;
   }
