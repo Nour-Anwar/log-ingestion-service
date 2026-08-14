@@ -1,9 +1,9 @@
 import { sql } from "./client.js";
 import { queueRollupCounts } from "./rollup.js";
 
-const FLUSH_INTERVAL_MS = 75;
-const MAX_BATCH_SIZE = 25000;
-const MAX_CONCURRENT_FLUSHES = 1;
+const FLUSH_INTERVAL_MS = 40;
+const MAX_BATCH_SIZE = 10000;
+const MAX_CONCURRENT_FLUSHES = 2;
 
 interface AcceptedEntry {
   timestamp: string;
@@ -22,10 +22,12 @@ interface Batch {
 function newBatch(): Batch {
   let resolve!: () => void;
   let reject!: (err: unknown) => void;
+
   const promise = new Promise<void>((res, rej) => {
     resolve = res;
     reject = rej;
   });
+
   return {
     csvRows: [],
     entries: [],
@@ -37,6 +39,7 @@ function newBatch(): Batch {
 
 let current = newBatch();
 const queue: Batch[] = [];
+
 let timer: ReturnType<typeof setTimeout> | null = null;
 let inFlight = 0;
 
@@ -44,6 +47,7 @@ function scheduleFlush() {
   if (timer !== null) {
     return;
   }
+
   timer = setTimeout(() => {
     timer = null;
     rotate();
@@ -54,15 +58,22 @@ function rotate() {
   if (current.csvRows.length === 0) {
     return;
   }
+
   queue.push(current);
   current = newBatch();
+
   pump();
 }
 
 function pump() {
-  while (inFlight < MAX_CONCURRENT_FLUSHES && queue.length > 0) {
+  while (
+    inFlight < MAX_CONCURRENT_FLUSHES &&
+    queue.length > 0
+  ) {
     const batch = queue.shift()!;
+
     inFlight++;
+
     void flushBatch(batch)
       .then(() => {
         batch.resolve();
@@ -92,19 +103,24 @@ async function flushBatch(batch: Batch) {
 
   await new Promise<void>((resolve, reject) => {
     let settled = false;
+
     const succeed = () => {
       if (settled) return;
+
       settled = true;
       resolve();
     };
+
     const fail = (error: unknown) => {
       if (settled) return;
+
       settled = true;
       reject(error);
     };
 
     writable.once("error", fail);
     writable.once("finish", succeed);
+
     writable.write(batch.csvRows.join(""));
     writable.end();
   });
@@ -117,6 +133,7 @@ export function enqueueLogs(
   entries: AcceptedEntry[],
 ): Promise<void> {
   const batch = current;
+
   batch.csvRows.push(...csvRows);
   batch.entries.push(...entries);
 
@@ -125,6 +142,7 @@ export function enqueueLogs(
       clearTimeout(timer);
       timer = null;
     }
+
     rotate();
   } else {
     scheduleFlush();
