@@ -46,6 +46,7 @@ export async function runMigrations() {
   try {
     await applyIfMissing("logs", "0000_init.sql");
     await applyIfMissing("logs_hourly_counts", "0001_rollup.sql");
+    await applyAlways("0004_unlogged_rollup.sql");
     await applyAlways("0002_ts_index.sql");
     await applyAlways("0003_aggregate_indexes.sql");
     await applyAlways("0005_drop_level_index.sql");
