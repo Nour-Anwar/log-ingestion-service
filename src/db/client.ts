@@ -5,7 +5,7 @@ const connectionString = process.env.DATABASE_URL;
 if (!connectionString) throw new Error("DATABASE_URL is not set");
 
 export const sql = postgres(connectionString, {
-  max: 6,
+  max: 10,
   idle_timeout: 20,
   connect_timeout: 10,
   connection: {
@@ -15,4 +15,6 @@ export const sql = postgres(connectionString, {
 
 export const readSql = postgres(connectionString, {
   max: 15,
+  idle_timeout: 20,
+  connect_timeout: 10,
 });
