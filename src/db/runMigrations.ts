@@ -26,20 +26,14 @@ async function applyIfMissing(checkTable: string, file: string) {
     return;
   }
   const migrationsDir = path.join(__dirname, "migrations");
-  const script = readFileSync(
-    path.join(migrationsDir, file),
-    "utf-8",
-  );
+  const script = readFileSync(path.join(migrationsDir, file), "utf-8");
   await sql.unsafe(script);
   console.log(`[migrations] applied ${file}`);
 }
 
 async function applyAlways(file: string) {
   const migrationsDir = path.join(__dirname, "migrations");
-  const script = readFileSync(
-    path.join(migrationsDir, file),
-    "utf-8",
-  );
+  const script = readFileSync(path.join(migrationsDir, file), "utf-8");
   await sql.unsafe(script);
   console.log(`[migrations] ensured ${file}`);
 }
@@ -51,13 +45,11 @@ export async function runMigrations() {
 
   try {
     await applyIfMissing("logs", "0000_init.sql");
-    await applyIfMissing(
-      "logs_hourly_counts",
-      "0001_rollup.sql",
-    );
+    await applyIfMissing("logs_hourly_counts", "0001_rollup.sql");
     await applyAlways("0002_ts_index.sql");
     await applyAlways("0003_aggregate_indexes.sql");
     await applyAlways("0005_drop_level_index.sql");
+    await applyAlways("0006_drop_duplicate_ts_index.sql");
   } finally {
     await sql`SELECT pg_advisory_unlock(${MIGRATIONS_LOCK_KEY})`;
   }

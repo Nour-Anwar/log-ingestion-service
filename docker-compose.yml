@@ -60,6 +60,8 @@ services:
       - random_page_cost=1.1
       - -c
       - wal_buffers=16MB
+      - -c
+      - full_page_writes=off
     healthcheck:
       test:
         [
