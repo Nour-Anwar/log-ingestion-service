@@ -1,8 +1,8 @@
 import { sql } from "./client.js";
 import { queueRollupCounts } from "./rollup.js";
 
-const FLUSH_INTERVAL_MS = 40;
-const MAX_BATCH_SIZE = 10000;
+const FLUSH_INTERVAL_MS = 30;
+const MAX_BATCH_SIZE = 15000;
 const MAX_CONCURRENT_FLUSHES = 2;
 
 interface AcceptedEntry {
@@ -28,13 +28,7 @@ function newBatch(): Batch {
     reject = rej;
   });
 
-  return {
-    csvRows: [],
-    entries: [],
-    resolve,
-    reject,
-    promise,
-  };
+  return { csvRows: [], entries: [], resolve, reject, promise };
 }
 
 let current = newBatch();
@@ -44,10 +38,7 @@ let timer: ReturnType<typeof setTimeout> | null = null;
 let inFlight = 0;
 
 function scheduleFlush() {
-  if (timer !== null) {
-    return;
-  }
-
+  if (timer !== null) return;
   timer = setTimeout(() => {
     timer = null;
     rotate();
@@ -55,32 +46,20 @@ function scheduleFlush() {
 }
 
 function rotate() {
-  if (current.csvRows.length === 0) {
-    return;
-  }
-
+  if (current.csvRows.length === 0) return;
   queue.push(current);
   current = newBatch();
-
   pump();
 }
 
 function pump() {
-  while (
-    inFlight < MAX_CONCURRENT_FLUSHES &&
-    queue.length > 0
-  ) {
+  while (inFlight < MAX_CONCURRENT_FLUSHES && queue.length > 0) {
     const batch = queue.shift()!;
-
     inFlight++;
 
     void flushBatch(batch)
-      .then(() => {
-        batch.resolve();
-      })
-      .catch((error) => {
-        batch.reject(error);
-      })
+      .then(() => batch.resolve())
+      .catch((error) => batch.reject(error))
       .finally(() => {
         inFlight--;
         pump();
@@ -106,14 +85,12 @@ async function flushBatch(batch: Batch) {
 
     const succeed = () => {
       if (settled) return;
-
       settled = true;
       resolve();
     };
 
     const fail = (error: unknown) => {
       if (settled) return;
-
       settled = true;
       reject(error);
     };
@@ -142,7 +119,6 @@ export function enqueueLogs(
       clearTimeout(timer);
       timer = null;
     }
-
     rotate();
   } else {
     scheduleFlush();

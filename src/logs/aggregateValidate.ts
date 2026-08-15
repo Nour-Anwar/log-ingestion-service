@@ -13,17 +13,26 @@ export interface AggregateParams {
 }
 
 export function parseAggregateQuery(
-  query: Record<string, unknown>,
+  query: Record<string, unknown>
 ): AggregateParams {
-  const since = typeof query.since === "string" ? query.since : undefined;
+  const since =
+    typeof query.since === "string"
+      ? query.since
+      : undefined;
 
-  const until = typeof query.until === "string" ? query.until : undefined;
+  const until =
+    typeof query.until === "string"
+      ? query.until
+      : undefined;
 
   if (!since || !until) {
     throw new Error("since and until are required");
   }
 
-  if (isNaN(new Date(since).getTime()) || isNaN(new Date(until).getTime())) {
+  if (
+    isNaN(new Date(since).getTime()) ||
+    isNaN(new Date(until).getTime())
+  ) {
     throw new Error("invalid timestamp");
   }
 
@@ -31,19 +40,14 @@ export function parseAggregateQuery(
     throw new Error("until must be after since");
   }
 
-  const bucket = typeof query.bucket === "string" ? query.bucket : undefined;
+  const bucket =
+    typeof query.bucket === "string"
+      ? query.bucket
+      : undefined;
 
   if (!bucket || !VALID_BUCKETS.includes(bucket)) {
-    throw new Error("bucket must be one of 1m, 5m, 1h, 1d");
-  }
-
-  if (
-    query.group_by !== undefined &&
-    query.group_by !== "service" &&
-    query.group_by !== "level"
-  ) {
     throw new Error(
-      "group_by must be one of service, level",
+      "bucket must be one of 1m, 5m, 1h, 1d"
     );
   }
 
@@ -53,20 +57,32 @@ export function parseAggregateQuery(
       ? query.group_by
       : undefined;
 
-  const service = typeof query.service === "string" ? query.service : undefined;
+  const service =
+    typeof query.service === "string"
+      ? query.service
+      : undefined;
 
-  const level = typeof query.level === "string" ? query.level : undefined;
+  const level =
+    typeof query.level === "string"
+      ? query.level
+      : undefined;
 
   if (level && !VALID_LEVELS.includes(level)) {
     throw new Error(`invalid level: '${level}'`);
   }
 
-  const q = typeof query.q === "string" ? query.q : undefined;
+  const q =
+    typeof query.q === "string"
+      ? query.q
+      : undefined;
 
   const attrs: Record<string, string> = {};
 
   for (const [key, value] of Object.entries(query)) {
-    if (key.startsWith("attr.") && typeof value === "string") {
+    if (
+      key.startsWith("attr.") &&
+      typeof value === "string"
+    ) {
       attrs[key.slice(5)] = value;
     }
   }

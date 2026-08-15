@@ -1,4 +1,4 @@
-import { sql } from "./client.js";
+import { rollupSql as sql } from "./client.js";
 
 interface AcceptedEntry {
   timestamp: string;
@@ -7,7 +7,7 @@ interface AcceptedEntry {
 }
 
 interface RollupRow {
-  hour: string;
+  minute: string;
   service: string;
   level: string;
   count: number;
@@ -20,23 +20,23 @@ let pending = new Map<string, RollupRow>();
 let timer: ReturnType<typeof setTimeout> | null = null;
 let flushing = false;
 
-function truncHour(iso: string): string {
+function truncMinute(iso: string): string {
   const date = new Date(iso);
-  date.setUTCMinutes(0, 0, 0);
+  date.setUTCSeconds(0, 0);
   return date.toISOString();
 }
 
 function mergeEntries(entries: AcceptedEntry[]) {
   for (const entry of entries) {
-    const hour = truncHour(entry.timestamp);
-    const key = `${hour}|${entry.service}|${entry.level}`;
+    const minute = truncMinute(entry.timestamp);
+    const key = `${minute}|${entry.service}|${entry.level}`;
     const existing = pending.get(key);
     if (existing) {
       existing.count++;
       continue;
     }
     pending.set(key, {
-      hour,
+      minute,
       service: entry.service,
       level: entry.level,
       count: 1,
@@ -75,39 +75,40 @@ async function drain() {
       return;
     }
 
-    const hours = rows.map((row) => row.hour);
+    const minutes = rows.map((row) => row.minute);
     const services = rows.map((row) => row.service);
     const levels = rows.map((row) => row.level);
     const counts = rows.map((row) => row.count);
 
     await sql`
-      INSERT INTO logs_hourly_counts (
-        hour,
+      INSERT INTO logs_minute_counts (
+        minute,
         service,
         level,
         count
       )
       SELECT
-        hour,
+        minute,
         service,
         level::log_level,
         count
       FROM UNNEST(
-        ${hours}::timestamptz[],
+        ${minutes}::timestamptz[],
         ${services}::text[],
         ${levels}::text[],
         ${counts}::bigint[]
       ) AS incoming(
-        hour,
+        minute,
         service,
         level,
         count
       )
-      ON CONFLICT (hour, service, level)
+      ON CONFLICT (minute, service, level)
       DO UPDATE SET
         count =
-          logs_hourly_counts.count + EXCLUDED.count
+          logs_minute_counts.count + EXCLUDED.count
     `;
+    console.log("[debug] rollup flushed rows:", rows.length, rows);
   } catch (error) {
     for (const [key, row] of batch) {
       const existing = pending.get(key);

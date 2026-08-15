@@ -14,31 +14,22 @@ function buildCsvRow(entry: {
   attributes: Record<string, unknown>;
 }): string {
   const ts = new Date(entry.timestamp).toISOString();
-
   return (
-    csvField(ts) +
-    "," +
-    csvField(entry.level) +
-    "," +
-    csvField(entry.service) +
-    "," +
-    csvField(entry.message) +
-    "," +
-    csvField(JSON.stringify(entry.attributes)) +
-    "\n"
+    [
+      csvField(ts),
+      csvField(entry.level),
+      csvField(entry.service),
+      csvField(entry.message),
+      csvField(JSON.stringify(entry.attributes)),
+    ].join(",") + "\n"
   );
 }
 
-export async function ingestLogs(
-  req: Request,
-  res: Response,
-) {
+export async function ingestLogs(req: Request, res: Response) {
   const body = req.body;
 
   if (!body || !Array.isArray(body.logs)) {
-    return res.status(400).json({
-      error: "expected { logs: [...] }",
-    });
+    return res.status(400).json({ error: "expected { logs: [...] }" });
   }
 
   const acceptedRows: string[] = [];
@@ -47,63 +38,39 @@ export async function ingestLogs(
     level: string;
     service: string;
   }[] = [];
+  const rejected: { index: number; reason: string }[] = [];
 
-  const rejected: {
-    index: number;
-    reason: string;
-  }[] = [];
-
-  for (let index = 0; index < body.logs.length; index++) {
-    const raw = body.logs[index];
-
+  body.logs.forEach((raw: unknown, index: number) => {
     const result = logEntrySchema.safeParse(raw);
-
-    if (!result.success) {
+    if (result.success) {
+      acceptedRows.push(buildCsvRow(result.data));
+      acceptedEntries.push({
+        timestamp: result.data.timestamp,
+        level: result.data.level,
+        service: result.data.service,
+      });
+    } else {
       rejected.push({
         index,
-        reason:
-          result.error.issues[0]?.message ??
-          "invalid entry",
+        reason: result.error.issues[0]?.message ?? "invalid entry",
       });
-
-      continue;
     }
-
-    const entry = result.data;
-
-    acceptedRows.push(buildCsvRow(entry));
-
-    acceptedEntries.push({
-      timestamp: entry.timestamp,
-      level: entry.level,
-      service: entry.service,
-    });
-  }
+  });
 
   if (acceptedRows.length === 0) {
-    return res.status(400).json({
-      accepted: 0,
-      rejected,
-    });
+    return res.status(400).json({ accepted: 0, rejected });
   }
 
   try {
-    await enqueueLogs(
-      acceptedRows,
-      acceptedEntries,
-    );
-  } catch (error) {
-    console.error(
-      "[ingest] flush failed:",
-      error,
-    );
-
-    return res.status(500).json({
-      error: "failed to write logs, please retry",
-    });
+    await enqueueLogs(acceptedRows, acceptedEntries);
+  } catch (err) {
+    console.error("[ingest] flush failed:", err);
+    return res
+      .status(500)
+      .json({ error: "failed to write logs, please retry" });
   }
 
-  return res.status(200).json({
+  res.status(200).json({
     accepted: acceptedRows.length,
     rejected,
   });

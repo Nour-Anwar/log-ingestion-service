@@ -4,10 +4,11 @@ function quoteIdentifier(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
 }
 
-export async function ensureMessageIndexesOnSealedPartitions() {
-  const today = new Date();
-  today.setUTCHours(0, 0, 0, 0);
-
+// بيبني trgm index على أي partition ناقصه — بما فيها partition
+// اليوم النشطة. لما تُستدعى فورًا بعد إنشاء partition جديدة (فاضية)،
+// البناء فوري تقريبًا. بدون هيك، أي بحث بـ q= بيعمل seq scan
+// كامل على البيانات النشطة طول فترة الحمل.
+export async function ensureMessageIndexes() {
   const partitions = await sql<{ tablename: string }[]>`
     SELECT tablename
     FROM pg_tables
@@ -16,20 +17,6 @@ export async function ensureMessageIndexesOnSealedPartitions() {
   `;
 
   for (const { tablename } of partitions) {
-    const match = tablename.match(
-      /^logs_(\d{4})_(\d{2})_(\d{2})$/
-    );
-
-    if (!match) continue;
-
-    const [, year, month, day] = match;
-    const partitionDate = new Date(
-      Date.UTC(Number(year), Number(month) - 1, Number(day))
-    );
-
-    // Never build the expensive trigram index on today's active partition.
-    if (partitionDate >= today) continue;
-
     const indexName = `idx_${tablename}_message_trgm`;
 
     const result = await sql<{ exists: boolean }[]>`
@@ -43,9 +30,7 @@ export async function ensureMessageIndexesOnSealedPartitions() {
 
     if (result[0]?.exists) continue;
 
-    console.log(
-      `[message-index] creating ${indexName} on ${tablename}`
-    );
+    console.log(`[message-index] creating ${indexName} on ${tablename}`);
 
     await sql.unsafe(`
       CREATE INDEX CONCURRENTLY ${quoteIdentifier(indexName)}
@@ -53,8 +38,6 @@ export async function ensureMessageIndexesOnSealedPartitions() {
       USING GIN (message gin_trgm_ops)
     `);
 
-    console.log(
-      `[message-index] created ${indexName}`
-    );
+    console.log(`[message-index] created ${indexName}`);
   }
 }
