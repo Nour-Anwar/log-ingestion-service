@@ -93,7 +93,7 @@ async function queryRollup(
       SELECT
         date_bin(${interval}::interval, minute, TIMESTAMPTZ '2001-01-01') AS start,
         service AS group,
-        SUM(count)::bigint AS count
+        SUM(count)::int AS count
       FROM logs_minute_counts
       WHERE ${whereClause}
       GROUP BY start, service
@@ -106,7 +106,7 @@ async function queryRollup(
       SELECT
         date_bin(${interval}::interval, minute, TIMESTAMPTZ '2001-01-01') AS start,
         level AS group,
-        SUM(count)::bigint AS count
+        SUM(count)::int AS count
       FROM logs_minute_counts
       WHERE ${whereClause}
       GROUP BY start, level
@@ -117,7 +117,7 @@ async function queryRollup(
   return sql<{ start: string; count: number }[]>`
     SELECT
       date_bin(${interval}::interval, minute, TIMESTAMPTZ '2001-01-01') AS start,
-      SUM(count)::bigint AS count
+      SUM(count)::int AS count
     FROM logs_minute_counts
     WHERE ${whereClause}
     GROUP BY start
@@ -166,7 +166,7 @@ async function queryLive(
       SELECT
         date_bin(${interval}::interval, ts, TIMESTAMPTZ '2001-01-01') AS start,
         service AS group,
-        COUNT(*)::bigint AS count
+        COUNT(*)::int AS count
       FROM logs
       WHERE ${whereClause}
       GROUP BY start, service
@@ -179,7 +179,7 @@ async function queryLive(
       SELECT
         date_bin(${interval}::interval, ts, TIMESTAMPTZ '2001-01-01') AS start,
         level AS group,
-        COUNT(*)::bigint AS count
+        COUNT(*)::int AS count
       FROM logs
       WHERE ${whereClause}
       GROUP BY start, level
@@ -190,7 +190,7 @@ async function queryLive(
   return sql<{ start: string; count: number }[]>`
     SELECT
       date_bin(${interval}::interval, ts, TIMESTAMPTZ '2001-01-01') AS start,
-      COUNT(*)::bigint AS count
+      COUNT(*)::int AS count
     FROM logs
     WHERE ${whereClause}
     GROUP BY start
@@ -235,14 +235,6 @@ async function runAggregate(
       ),
     );
   }
-
-  console.log(
-    "[debug] since=%s until=%s safeUntil=%s parts=%o",
-    since.toISOString(),
-    until.toISOString(),
-    safeUntil.toISOString(),
-    parts,
-  );
 
   return mergeBuckets(parts);
 }
