@@ -108,7 +108,6 @@ async function drain() {
         count =
           logs_minute_counts.count + EXCLUDED.count
     `;
-    console.log("[debug] rollup flushed rows:", rows.length, rows);
   } catch (error) {
     for (const [key, row] of batch) {
       const existing = pending.get(key);

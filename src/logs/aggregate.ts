@@ -4,6 +4,7 @@ import {
   parseAggregateQuery,
   AggregateParams,
 } from "./aggregateValidate.js";
+import { getCached, setCached } from "./aggregateCache.js";
 
 function bucketToInterval(bucket: string): string {
   switch (bucket) {
@@ -32,6 +33,18 @@ function canUseRollup(params: AggregateParams): boolean {
   if (params.q) return false;
   if (Object.keys(params.attrs).length > 0) return false;
   return true;
+}
+
+function floorToMinute(date: Date): Date {
+  const d = new Date(date);
+  d.setUTCSeconds(0, 0);
+  return d;
+}
+
+function ceilToMinute(date: Date): Date {
+  const floored = floorToMinute(date);
+  if (floored.getTime() === date.getTime()) return floored;
+  return new Date(floored.getTime() + 60_000);
 }
 
 function mergeBuckets(parts: BucketRow[][]): BucketRow[] {
@@ -216,18 +229,56 @@ async function runAggregate(
     return queryLive(params, interval, params.since, params.until);
   }
 
-  const parts: BucketRow[][] = [
-    await queryRollup(
-      params,
-      interval,
-      since.toISOString(),
-      safeUntil.toISOString(),
-    ),
-  ];
+  const rollupStart = ceilToMinute(since);
+  const rollupEnd = floorToMinute(safeUntil);
 
+  const queries: Promise<BucketRow[]>[] = [];
+
+  // الجزء الجزئي من أول دقيقة: [since, rollupStart)
+  if (rollupStart.getTime() > since.getTime()) {
+    const headEnd =
+      rollupStart.getTime() < safeUntil.getTime() ? rollupStart : safeUntil;
+    queries.push(
+      queryLive(
+        params,
+        interval,
+        since.toISOString(),
+        headEnd.toISOString(),
+      ),
+    );
+  }
+
+  // الدقائق الكاملة عبر rollup: [rollupStart, rollupEnd)
+  if (rollupStart.getTime() < rollupEnd.getTime()) {
+    queries.push(
+      queryRollup(
+        params,
+        interval,
+        rollupStart.toISOString(),
+        rollupEnd.toISOString(),
+      ),
+    );
+  }
+
+  // الجزء الجزئي قبل هامش الأمان: [rollupEnd, safeUntil)
+  if (
+    rollupEnd.getTime() < safeUntil.getTime() &&
+    rollupEnd.getTime() >= rollupStart.getTime()
+  ) {
+    queries.push(
+      queryLive(
+        params,
+        interval,
+        rollupEnd.toISOString(),
+        safeUntil.toISOString(),
+      ),
+    );
+  }
+
+  // الذيل الأخير بعد هامش الأمان: [safeUntil, until)
   if (safeUntil.getTime() < until.getTime()) {
-    parts.push(
-      await queryLive(
+    queries.push(
+      queryLive(
         params,
         interval,
         safeUntil.toISOString(),
@@ -236,6 +287,7 @@ async function runAggregate(
     );
   }
 
+  const parts = await Promise.all(queries);
   return mergeBuckets(parts);
 }
 
@@ -244,9 +296,17 @@ export async function aggregateLogs(req: Request, res: Response) {
     const params = parseAggregateQuery(
       req.query as Record<string, unknown>,
     );
+
+    const cacheKey = JSON.stringify(params);
+    const cached = getCached(cacheKey);
+    if (cached !== undefined) {
+      return res.status(200).json({ buckets: cached });
+    }
+
     const interval = bucketToInterval(params.bucket);
     const buckets = await runAggregate(params, interval);
 
+    setCached(cacheKey, buckets);
     return res.status(200).json({ buckets });
   } catch (error) {
     return res.status(400).json({
