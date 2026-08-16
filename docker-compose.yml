@@ -58,7 +58,7 @@ services:
       - -c
       - wal_buffers=16MB
       - -c
-      - full_page_writes=on
+      - full_page_writes=off
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 2s

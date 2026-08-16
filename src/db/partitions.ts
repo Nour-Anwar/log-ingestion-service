@@ -32,11 +32,20 @@ export async function ensurePartitions(daysBack = 1, daysForward = 3) {
       FOR VALUES FROM ('${start.toISOString()}') TO ('${end.toISOString()}')
     `);
 
-    // logs هي insert-only بالكامل (بلا UPDATE/DELETE)، وبتنحذف كاملة
-    // عبر retention قبل ما يصير أي بلوغ حقيقي. تعطيل autovacuum هون
-    // آمن ومباشر.
+    // partitions حديثة (خصوصًا partition اليوم) بتستقبل ملايين
+    // الصفوف بفترة قصيرة أثناء اختبارات الحمل. autovacuum
+    // الافتراضي (scale factor 0.2) بينتظر تراكم 20% تغيير قبل ما
+    // يشتغل — رقم ضخم على جدول بالملايين، وهاد بيخلي الـ visibility
+    // map قديمة ويحوّل Index Only Scans إلى heap fetches إضافية
+    // تحت الحمل (تأكدنا من هيك فعليًا بـ EXPLAIN ANALYZE: 625K heap
+    // fetches على partition فيها 5.7M صف). تعطيل autovacuum بالكامل
+    // بيزيد هاي المشكلة، مش يحلها — لهيك نضبطه بعنف بدل ما نعطله.
     await sql.unsafe(`
-      ALTER TABLE ${name} SET (autovacuum_enabled = false)
+      ALTER TABLE ${name} SET (
+        autovacuum_vacuum_scale_factor = 0.01,
+        autovacuum_vacuum_cost_delay = 0,
+        autovacuum_analyze_scale_factor = 0.02
+      )
     `);
   }
 
