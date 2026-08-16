@@ -13,6 +13,8 @@ services:
         condition: service_healthy
     cpus: 0.5
     mem_limit: 256m
+    volumes:
+      - ./prof:/app/prof
 
   postgres:
     image: postgres:16-alpine

@@ -27,8 +27,19 @@ function truncMinute(iso: string): string {
 }
 
 function mergeEntries(entries: AcceptedEntry[]) {
+  // Cache محلي بحدود هاي الدفعة بس — بيتلقّط مع نهاية الدالة، ما بيتراكم.
+  // كتير entries بنفس الـ batch غالبًا بنفس الـ timestamp بالظبط
+  // (خصوصًا حمل واقعي/اختباري)، فمفيش داعي نعيد new Date()+toISOString()
+  // لنفس القيمة عشرات-مئات المرات.
+  const minuteCache = new Map<string, string>();
+
   for (const entry of entries) {
-    const minute = truncMinute(entry.timestamp);
+    let minute = minuteCache.get(entry.timestamp);
+    if (minute === undefined) {
+      minute = truncMinute(entry.timestamp);
+      minuteCache.set(entry.timestamp, minute);
+    }
+
     const key = `${minute}|${entry.service}|${entry.level}`;
     const existing = pending.get(key);
     if (existing) {

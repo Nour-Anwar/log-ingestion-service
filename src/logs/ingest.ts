@@ -3,6 +3,11 @@ import { logEntrySchema } from "./validate.js";
 import { enqueueLogs } from "../db/writeBuffer.js";
 
 function csvField(value: string): string {
+  // كتير حقول (level, service، وغالبًا message) ما فيها quotes إطلاقًا.
+  // نتفادى replaceAll (بتعمل scan + allocation جديدة) لو مش لازمة.
+  if (value.indexOf('"') === -1) {
+    return `"${value}"`;
+  }
   return `"${value.replaceAll('"', '""')}"`;
 }
 
@@ -14,14 +19,19 @@ function buildCsvRow(entry: {
   attributes: Record<string, unknown>;
 }): string {
   const ts = new Date(entry.timestamp).toISOString();
+  // string concatenation مباشر بدل [..].join(",") — بيتفادى allocation
+  // array وسيط لكل سطر.
   return (
-    [
-      csvField(ts),
-      csvField(entry.level),
-      csvField(entry.service),
-      csvField(entry.message),
-      csvField(JSON.stringify(entry.attributes)),
-    ].join(",") + "\n"
+    csvField(ts) +
+    "," +
+    csvField(entry.level) +
+    "," +
+    csvField(entry.service) +
+    "," +
+    csvField(entry.message) +
+    "," +
+    csvField(JSON.stringify(entry.attributes)) +
+    "\n"
   );
 }
 
@@ -40,7 +50,8 @@ export async function ingestLogs(req: Request, res: Response) {
   }[] = [];
   const rejected: { index: number; reason: string }[] = [];
 
-  body.logs.forEach((raw: unknown, index: number) => {
+  for (let index = 0; index < body.logs.length; index++) {
+    const raw = body.logs[index];
     const result = logEntrySchema.safeParse(raw);
     if (result.success) {
       acceptedRows.push(buildCsvRow(result.data));
@@ -55,7 +66,7 @@ export async function ingestLogs(req: Request, res: Response) {
         reason: result.error.issues[0]?.message ?? "invalid entry",
       });
     }
-  });
+  }
 
   if (acceptedRows.length === 0) {
     return res.status(400).json({ accepted: 0, rejected });

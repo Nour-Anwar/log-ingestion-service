@@ -6,3 +6,4 @@ COPY . .
 RUN npm run build
 EXPOSE 8080
 CMD ["node", "--max-old-space-size=192", "dist/server.js"]
+# CMD ["node", "--cpu-prof", "--cpu-prof-dir=/app/prof", "--cpu-prof-interval=200", "--max-old-space-size=192", "dist/server.js"]

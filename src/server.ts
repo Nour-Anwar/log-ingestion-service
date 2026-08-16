@@ -10,6 +10,10 @@ process.on("uncaughtException", (err) => {
 process.on("unhandledRejection", (err) => {
   console.error("[unhandledRejection] server stayed alive:", err);
 });
+process.on("SIGTERM", () => {
+  console.log("[shutdown] SIGTERM received, exiting gracefully...");
+  process.exit(0);
+});
 const PORT = process.env.PORT || 8080;
 const RETENTION_DAYS = Number(process.env.RETENTION_DAYS ?? 30);
 
