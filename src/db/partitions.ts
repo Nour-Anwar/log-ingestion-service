@@ -31,6 +31,13 @@ export async function ensurePartitions(daysBack = 1, daysForward = 3) {
       PARTITION OF logs
       FOR VALUES FROM ('${start.toISOString()}') TO ('${end.toISOString()}')
     `);
+
+    // logs هي insert-only بالكامل (بلا UPDATE/DELETE)، وبتنحذف كاملة
+    // عبر retention قبل ما يصير أي بلوغ حقيقي. تعطيل autovacuum هون
+    // آمن ومباشر.
+    await sql.unsafe(`
+      ALTER TABLE ${name} SET (autovacuum_enabled = false)
+    `);
   }
 
   await ensureMessageIndexes();
@@ -50,7 +57,9 @@ export async function applyRetention(retentionDays: number) {
     const [, y, m, d] = tablename.match(/^logs_(\d{4})_(\d{2})_(\d{2})$/) ?? [];
     if (!y) continue;
 
-    const partitionDate = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d)));
+    const partitionDate = new Date(
+      Date.UTC(Number(y), Number(m) - 1, Number(d)),
+    );
 
     if (partitionDate < cutoff) {
       await sql.unsafe(`DROP TABLE IF EXISTS ${tablename}`);
