@@ -5,4 +5,4 @@ RUN npm install
 COPY . .
 RUN npm run build
 EXPOSE 8080
-CMD ["node", "--max-old-space-size=192", "dist/server.js"]
+CMD ["npm", "start"]

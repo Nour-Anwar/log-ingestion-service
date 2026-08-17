@@ -1,9 +1,6 @@
 import type { Request, Response } from "express";
 import { readSql as sql } from "../db/client.js";
-import {
-  parseAggregateQuery,
-  AggregateParams,
-} from "./aggregateValidate.js";
+import { parseAggregateQuery, AggregateParams } from "./aggregateValidate.js";
 import { getCached, setCached } from "./aggregateCache.js";
 
 function bucketToInterval(bucket: string): string {
@@ -76,10 +73,7 @@ function buildRollupConditions(
   since: string,
   until: string,
 ) {
-  const conditions = [
-    sql`minute >= ${since}`,
-    sql`minute < ${until}`,
-  ];
+  const conditions = [sql`minute >= ${since}`, sql`minute < ${until}`];
 
   if (params.service) {
     conditions.push(sql`service = ${params.service}`);
@@ -88,9 +82,7 @@ function buildRollupConditions(
     conditions.push(sql`level = ${params.level}::log_level`);
   }
 
-  return conditions.reduce(
-    (acc, condition) => sql`${acc} AND ${condition}`,
-  );
+  return conditions.reduce((acc, condition) => sql`${acc} AND ${condition}`);
 }
 
 async function queryRollup(
@@ -143,10 +135,7 @@ function buildLiveConditions(
   since: string,
   until: string,
 ) {
-  const conditions = [
-    sql`ts >= ${since}`,
-    sql`ts < ${until}`,
-  ];
+  const conditions = [sql`ts >= ${since}`, sql`ts < ${until}`];
 
   if (params.service) {
     conditions.push(sql`service = ${params.service}`);
@@ -158,12 +147,10 @@ function buildLiveConditions(
     conditions.push(sql`message ILIKE ${"%" + params.q + "%"}`);
   }
   for (const [key, value] of Object.entries(params.attrs)) {
-    conditions.push(sql`attributes ->> ${key} = ${value}`);
+    conditions.push(sql`attributes @> ${sql.json({ [key]: value })}`);
   }
 
-  return conditions.reduce(
-    (acc, condition) => sql`${acc} AND ${condition}`,
-  );
+  return conditions.reduce((acc, condition) => sql`${acc} AND ${condition}`);
 }
 
 async function queryLive(
@@ -239,12 +226,7 @@ async function runAggregate(
     const headEnd =
       rollupStart.getTime() < safeUntil.getTime() ? rollupStart : safeUntil;
     queries.push(
-      queryLive(
-        params,
-        interval,
-        since.toISOString(),
-        headEnd.toISOString(),
-      ),
+      queryLive(params, interval, since.toISOString(), headEnd.toISOString()),
     );
   }
 
@@ -278,12 +260,7 @@ async function runAggregate(
   // الذيل الأخير بعد هامش الأمان: [safeUntil, until)
   if (safeUntil.getTime() < until.getTime()) {
     queries.push(
-      queryLive(
-        params,
-        interval,
-        safeUntil.toISOString(),
-        until.toISOString(),
-      ),
+      queryLive(params, interval, safeUntil.toISOString(), until.toISOString()),
     );
   }
 
@@ -293,9 +270,7 @@ async function runAggregate(
 
 export async function aggregateLogs(req: Request, res: Response) {
   try {
-    const params = parseAggregateQuery(
-      req.query as Record<string, unknown>,
-    );
+    const params = parseAggregateQuery(req.query as Record<string, unknown>);
 
     const cacheKey = JSON.stringify(params);
     const cached = getCached(cacheKey);
