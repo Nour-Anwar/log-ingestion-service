@@ -2,7 +2,7 @@ import type { Request, Response } from "express";
 import { readSql as sql } from "../db/client.js";
 import { parseAggregateQuery, AggregateParams } from "./aggregateValidate.js";
 import { getCached, setCached } from "./aggregateCache.js";
-
+import { escapeLike } from "./query.js";
 function bucketToInterval(bucket: string): string {
   switch (bucket) {
     case "1m":
@@ -144,7 +144,8 @@ function buildLiveConditions(
     conditions.push(sql`level = ${params.level}::log_level`);
   }
   if (params.q) {
-    conditions.push(sql`message ILIKE ${"%" + params.q + "%"}`);
+    const q = escapeLike(params.q);
+    conditions.push(sql`message ILIKE ${"%" + q + "%"} ESCAPE '\\'`);
   }
   for (const [key, value] of Object.entries(params.attrs)) {
     conditions.push(sql`attributes @> ${sql.json({ [key]: value })}`);

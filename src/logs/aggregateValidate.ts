@@ -36,8 +36,10 @@ export function parseAggregateQuery(
     throw new Error("invalid timestamp");
   }
 
-  if (new Date(until) <= new Date(since)) {
-    throw new Error("until must be after since");
+  // نسمح بـ since === until (مدى فارغ صالح، بيرجع buckets فارغة)،
+  // نرفض بس until < since
+  if (new Date(until) < new Date(since)) {
+    throw new Error("until must not be earlier than since");
   }
 
   const bucket =
@@ -51,11 +53,19 @@ export function parseAggregateQuery(
     );
   }
 
-  const groupBy =
-    query.group_by === "service" ||
-    query.group_by === "level"
-      ? query.group_by
-      : undefined;
+  // group_by غير الصالح لازم يرجّع 400 بدل ما يتجاهَل بصمت
+  const rawGroupBy = query.group_by;
+  let groupBy: "service" | "level" | undefined;
+
+  if (rawGroupBy !== undefined) {
+    if (rawGroupBy === "service" || rawGroupBy === "level") {
+      groupBy = rawGroupBy;
+    } else {
+      throw new Error(
+        `invalid group_by: '${String(rawGroupBy)}', must be 'service' or 'level'`,
+      );
+    }
+  }
 
   const service =
     typeof query.service === "string"

@@ -23,7 +23,7 @@ interface LogRowDb {
   attributes: Record<string, unknown>;
 }
 
-function escapeLike(value: string): string {
+export function escapeLike(value: string): string {
   return value
     .replaceAll("\\", "\\\\")
     .replaceAll("%", "\\%")
