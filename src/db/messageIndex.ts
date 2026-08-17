@@ -6,10 +6,11 @@ function quoteIdentifier(name: string): string {
 
 // بيبني trgm index على partitions المختومة (سابقة، مش اليوم النشطة)
 // فقط. partition اليوم بتستقبل ملايين الصفوف أثناء الحمل، فبناء
-// GIN index عليها بيخلي كل insert يدفع تكلفة صيانة إضافية. بدون
-// الفهرس على البيانات القديمة، أي بحث بـ q= على الأيام السابقة
-// بيعمل seq scan كامل — لهيك منأجله بس عن اليوم الحالي.
+// GIN index عليها بيخلي كل insert يدفع تكلفة صيانة إضافية.
 export async function ensureMessageIndexes() {
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+
   const partitions = await sql<{ tablename: string }[]>`
     SELECT tablename
     FROM pg_tables
@@ -18,6 +19,15 @@ export async function ensureMessageIndexes() {
   `;
 
   for (const { tablename } of partitions) {
+    const match = tablename.match(/^logs_(\d{4})_(\d{2})_(\d{2})$/);
+    if (!match) continue;
+    const [, year, month, day] = match;
+    const partitionDate = new Date(
+      Date.UTC(Number(year), Number(month) - 1, Number(day)),
+    );
+    // لا تبني الفهرس الثقيل على partition اليوم (أو المستقبل) النشطة
+    if (partitionDate >= today) continue;
+
     const indexName = `idx_${tablename}_message_trgm`;
 
     const result = await sql<{ exists: boolean }[]>`

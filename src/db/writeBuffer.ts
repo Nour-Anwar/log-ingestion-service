@@ -5,6 +5,10 @@ const FLUSH_INTERVAL_MS = 30;
 const MAX_BATCH_SIZE = 15000;
 const MAX_CONCURRENT_FLUSHES = 2;
 
+// ✅ جديد: حد أقصى للطابور عشان نمنع الانتفاخ اللانهائي
+const MAX_QUEUE_LENGTH = 8; // عدد الـ batches المنتظرة، مش صفوف
+const MAX_QUEUED_ROWS = MAX_QUEUE_LENGTH * MAX_BATCH_SIZE;
+
 interface AcceptedEntry {
   timestamp: string;
   level: string;
@@ -17,6 +21,14 @@ interface Batch {
   resolve: () => void;
   reject: (err: unknown) => void;
   promise: Promise<void>;
+}
+
+// ✅ جديد: خطأ مخصص نميزه بالـ route عشان نرجع 503 مش 500
+export class BackpressureError extends Error {
+  constructor() {
+    super("ingestion queue full, retry shortly");
+    this.name = "BackpressureError";
+  }
 }
 
 function newBatch(): Batch {
@@ -36,6 +48,13 @@ const queue: Batch[] = [];
 
 let timer: ReturnType<typeof setTimeout> | null = null;
 let inFlight = 0;
+
+// ✅ جديد: عدّاد الصفوف الكلي المنتظرة بالطابور (بدون current)
+function queuedRowCount(): number {
+  let total = 0;
+  for (const b of queue) total += b.csvRows.length;
+  return total;
+}
 
 function scheduleFlush() {
   if (timer !== null) return;
@@ -68,6 +87,10 @@ function pump() {
 }
 
 async function flushBatch(batch: Batch) {
+  // ✅ قياس مؤقت — نشيلها بعد ما نأكد التشخيص
+  const t0 = Date.now();
+  const rowCount = batch.csvRows.length;
+
   const writable = await sql`
     COPY logs (
       ts,
@@ -102,6 +125,12 @@ async function flushBatch(batch: Batch) {
     writable.end();
   });
 
+  const elapsed = Date.now() - t0;
+  // ✅ قياس مؤقت
+  console.log(
+    `[flush] rows=${rowCount} took=${elapsed}ms queueLen=${queue.length} queuedRows=${queuedRowCount()} inFlight=${inFlight}`,
+  );
+
   queueRollupCounts(batch.entries);
 }
 
@@ -109,6 +138,11 @@ export function enqueueLogs(
   csvRows: string[],
   entries: AcceptedEntry[],
 ): Promise<void> {
+  // ✅ جديد: backpressure — لو الطابور ممتلئ، نرفض فورًا بدل ما نراكم
+  if (queue.length >= MAX_QUEUE_LENGTH || queuedRowCount() >= MAX_QUEUED_ROWS) {
+    return Promise.reject(new BackpressureError());
+  }
+
   const batch = current;
 
   batch.csvRows.push(...csvRows);

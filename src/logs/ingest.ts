@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import { logEntrySchema } from "./validate.js";
-import { enqueueLogs } from "../db/writeBuffer.js";
+import { enqueueLogs, BackpressureError } from "../db/writeBuffer.js";
 
 function csvField(value: string): string {
   return `"${value.replaceAll('"', '""')}"`;
@@ -64,6 +64,10 @@ export async function ingestLogs(req: Request, res: Response) {
   try {
     await enqueueLogs(acceptedRows, acceptedEntries);
   } catch (err) {
+    if (err instanceof BackpressureError) {
+      res.setHeader("Retry-After", "1");
+      return res.status(503).json({ error: "service overloaded, retry shortly" });
+    }
     console.error("[ingest] flush failed:", err);
     return res
       .status(500)
