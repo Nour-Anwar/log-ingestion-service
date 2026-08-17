@@ -13,8 +13,8 @@ interface RollupRow {
   count: number;
 }
 
-const ROLLUP_FLUSH_INTERVAL_MS = 150;
-const MAX_PENDING_GROUPS = 5000;
+const ROLLUP_FLUSH_INTERVAL_MS = 500;
+const MAX_PENDING_GROUPS = 10000;
 
 let pending = new Map<string, RollupRow>();
 let timer: ReturnType<typeof setTimeout> | null = null;
