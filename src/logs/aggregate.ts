@@ -24,7 +24,7 @@ interface BucketRow {
   count: number;
 }
 
-const ROLLUP_SAFETY_MARGIN_MS = 3000;
+const ROLLUP_SAFETY_MARGIN_MS = 1200;
 
 function canUseRollup(params: AggregateParams): boolean {
   if (params.q) return false;
