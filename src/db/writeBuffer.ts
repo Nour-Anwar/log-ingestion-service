@@ -3,7 +3,7 @@ import { queueRollupCounts } from "./rollup.js";
 
 const FLUSH_INTERVAL_MS = 30;
 const MAX_BATCH_SIZE = 15000;
-const MAX_CONCURRENT_FLUSHES = 2;
+const MAX_CONCURRENT_FLUSHES = 3;
 
 const MAX_QUEUE_LENGTH = 8;
 const MAX_QUEUED_ROWS = MAX_QUEUE_LENGTH * MAX_BATCH_SIZE;
