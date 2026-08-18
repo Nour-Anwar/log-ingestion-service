@@ -1,11 +1,15 @@
 import "dotenv/config";
 import postgres from "postgres";
 
-const connectionString = process.env.DATABASE_URL;
-if (!connectionString) throw new Error("DATABASE_URL is not set");
+const primaryUrl = process.env.DATABASE_URL;
+const replicaUrl = process.env.READ_DATABASE_URL;
 
-// COPY writes (ingest) — الشغل الأثقل، هو أولوية الكتابة
-export const sql = postgres(connectionString, {
+if (!primaryUrl) {
+  throw new Error("DATABASE_URL is not set");
+}
+
+// COPY writes
+export const sql = postgres(primaryUrl, {
   max: 10,
   idle_timeout: 20,
   connect_timeout: 10,
@@ -14,16 +18,15 @@ export const sql = postgres(connectionString, {
   },
 });
 
-// queries (GET /logs, GET /logs/aggregate)
-export const readSql = postgres(connectionString, {
+// Read queries
+export const readSql = postgres(replicaUrl ?? primaryUrl, {
   max: 15,
   idle_timeout: 20,
-  connect_timeout: 10,
+  connect_timeout: 5,
 });
 
-// rollup upserts فقط — منفصل عشان ما يتخانق مع COPY streams
-// على نفس الـ connections وقت الضغط
-export const rollupSql = postgres(connectionString, {
+// Rollup writes
+export const rollupSql = postgres(primaryUrl, {
   max: 4,
   idle_timeout: 20,
   connect_timeout: 10,
