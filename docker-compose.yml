@@ -13,7 +13,7 @@ services:
         condition: service_healthy
     cpus: 0.5
     mem_limit: 256m
-
+ 
   postgres:
     image: postgres:16-alpine
     shm_size: 256mb
@@ -38,7 +38,7 @@ services:
       - -c
       - synchronous_commit=off
       - -c
-      - shared_buffers=256MB
+      - shared_buffers=384MB
       - -c
       - effective_cache_size=700MB
       - -c
@@ -59,6 +59,10 @@ services:
       - wal_buffers=16MB
       - -c
       - full_page_writes=off
+      - -c
+      - bgwriter_lru_maxpages=1000
+      - -c
+      - bgwriter_delay=10ms
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 2s
@@ -66,6 +70,7 @@ services:
       retries: 20
     cpus: 1
     mem_limit: 1g
-
+ 
 volumes:
   postgres_data:
+ 

@@ -1,5 +1,5 @@
 import { readSql as sql } from "../db/client.js";
-
+ 
 export interface LogQueryParams {
   service?: string;
   level?: string;
@@ -13,7 +13,7 @@ export interface LogQueryParams {
     id: number;
   };
 }
-
+ 
 interface LogRowDb {
   id: string;
   ts: string;
@@ -22,61 +22,69 @@ interface LogRowDb {
   message: string;
   attributes: Record<string, unknown>;
 }
-
+ 
 export function escapeLike(value: string): string {
   return value
     .replaceAll("\\", "\\\\")
     .replaceAll("%", "\\%")
     .replaceAll("_", "\\_");
 }
-
+ 
 export async function queryLogs(params: LogQueryParams) {
   const conditions = [];
-
+ 
   if (params.service) {
     conditions.push(sql`service = ${params.service}`);
   }
-
+ 
   if (params.level) {
     conditions.push(sql`level = ${params.level}::log_level`);
   }
-
+ 
   if (params.since) {
     conditions.push(sql`ts >= ${params.since}`);
   }
-
+ 
   if (params.until) {
     conditions.push(sql`ts < ${params.until}`);
   }
-
+ 
   if (params.q) {
     const q = escapeLike(params.q);
     conditions.push(sql`message ILIKE ${"%" + q + "%"} ESCAPE '\\'`);
   }
-
+ 
   const hasAttrFilter = Object.keys(params.attrs).length > 0;
-
+ 
+  // ✅ تصحيح: attr.<key> لازم يتقارن كنص (زي ما موثق بمواصفة الـ API:
+  // "Attribute equality, compared as strings"). @> containment كان بيتطلب
+  // تطابق نوع JSON صارم (نص مقابل نص، رقم مقابل رقم) — فأي attribute
+  // مخزّن كـ number أو boolean (زي retries: 3 بمثال المواصفة نفسه) كانت
+  // فلترته بترجع نتائج فاضية دايمًا، لأن query.ts كان يبني {key: "3"}
+  // (نص) ويقارنه containment مقابل {key: 3} (رقم) المخزّن فعليًا.
+  // ->> بيحول القيمة المخزّنة لنص أول، فبتنقارن صح بغض النظر عن نوعها
+  // الأصلي بالتخزين.
   for (const [key, value] of Object.entries(params.attrs)) {
-    conditions.push(sql`attributes @> ${sql.json({ [key]: value })}`);
+    conditions.push(sql`attributes ->> ${key} = ${value}`);
   }
-
+ 
   if (params.cursor) {
     conditions.push(sql`(ts, id) < (${params.cursor.ts}, ${params.cursor.id})`);
   }
-
+ 
   const whereClause =
     conditions.length > 0
       ? sql`WHERE ${conditions.reduce(
           (acc, condition) => sql`${acc} AND ${condition}`,
         )}`
       : sql``;
-
+ 
   // فلترة الـ attributes نادرة وموزّعة بشكل عشوائي عبر الزمن، فخطة
   // الـ planner الطبيعية (Merge Append عبر فهرس ts لكل partition)
   // بتمسح آلاف الصفوف بكل partition قبل ما تلاقي تطابق. لف الاستعلام
-  // بـ CTE MATERIALIZED بيجبر الـ planner يستخدم فهرس GIN على
-  // attributes لكل partition لحاله (سريع جداً)، وبعدين يرتب النتيجة
-  // الصغيرة المجمّعة — قياس فعلي: 1421ms → 3ms.
+  // بـ CTE MATERIALIZED بيجبر الـ planner يجمّع كل الـ partitions أول
+  // وبعدين يفلتر ويرتب النتيجة المجمّعة مرة وحدة، بدل ما يعمل ترتيب
+  // جزئي متكرر لكل partition قبل الفلترة.
   const rows = hasAttrFilter
     ? await sql<LogRowDb[]>`
         WITH matches AS MATERIALIZED (
@@ -101,15 +109,15 @@ export async function queryLogs(params: LogQueryParams) {
         ORDER BY ts DESC, id DESC
         LIMIT ${params.limit + 1}
       `;
-
+ 
   const hasMore = rows.length > params.limit;
-
+ 
   const logs = hasMore ? rows.slice(0, params.limit) : rows;
-
+ 
   const nextCursor = hasMore
     ? encodeCursor(logs[logs.length - 1].ts, logs[logs.length - 1].id)
     : null;
-
+ 
   return {
     logs: logs.map((log) => ({
       id: log.id,
@@ -130,10 +138,10 @@ export function encodeCursor(ts: string, id: string | number) {
     }),
   ).toString("base64url");
 }
-
+ 
 export function decodeCursor(cursor: string) {
   const data = JSON.parse(Buffer.from(cursor, "base64url").toString());
-
+ 
   if (
     typeof data.ts !== "string" ||
     typeof data.id !== "number" ||
@@ -141,6 +149,7 @@ export function decodeCursor(cursor: string) {
   ) {
     throw new Error("invalid cursor");
   }
-
+ 
   return data;
 }
+ 
