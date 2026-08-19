@@ -48,6 +48,7 @@ export async function runMigrations() {
     await applyAlways("0005_drop_attrs_gin.sql");
     await applyAlways("0006_tune_autovacuum.sql");
     await applyAlways("0007_recreate_attrs_gin.sql");
+    await applyAlways("0008_restore_core_indexes.sql");
   } finally {
     await sql`SELECT pg_advisory_unlock(${MIGRATIONS_LOCK_KEY})`;
   }
