@@ -41,3 +41,6 @@ export const logs = pgTable(
     }),
   }),
 );
+
+
+export type LogRowDb = typeof logs.$inferSelect;

@@ -1,11 +1,8 @@
-export interface LogEntry {
+import { type LogRowDb } from "../db/schema.js";
+export type LogEntry = Omit<LogRowDb, "id" | "ts"> & {
   timestamp: string;
   parsedTimestamp: Date;
-  level: "debug" | "info" | "warn" | "error";
-  service: string;
-  message: string;
-  attributes: Record<string, unknown>;
-}
+};
 
 const VALID_LEVELS = new Set(["debug", "info", "warn", "error"]);
 const FIVE_MIN_MS = 5 * 60 * 1000;

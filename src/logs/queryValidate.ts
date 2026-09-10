@@ -1,22 +1,10 @@
 import { decodeCursor } from "./query.js";
 
 const LEVELS = ["debug", "info", "warn", "error"];
+import type { LogQueryParams } from "./types.js";
 
-export interface ParsedQuery {
-  service?: string;
-  level?: string;
-  since?: string;
-  until?: string;
-  attrs: Record<string, string>;
-  q?: string;
-  limit: number;
-  cursor?: {
-    ts: string;
-    id: number;
-  };
-}
 
-export function parseLogQuery(query: Record<string, unknown>): ParsedQuery {
+export function parseLogQuery(query: Record<string, unknown>):  LogQueryParams {
   const service = typeof query.service === "string" ? query.service : undefined;
 
   const level = typeof query.level === "string" ? query.level : undefined;

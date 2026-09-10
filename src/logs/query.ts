@@ -1,21 +1,7 @@
 import { readSql as sql } from "../db/client.js";
-import { logs } from "../db/schema.js";
+import { type LogRowDb } from "../db/schema.js";
+import type { LogQueryParams } from "./types.js";
 
-type LogRowDb = typeof logs.$inferSelect;
-
-export interface LogQueryParams {
-  service?: string;
-  level?: string;
-  since?: string;
-  until?: string;
-  attrs: Record<string, string>;
-  q?: string;
-  limit: number;
-  cursor?: {
-    ts: string;
-    id: number;
-  };
-}
 
 export function escapeLike(value: string): string {
   return value
